@@ -1,0 +1,3337 @@
+// Mughal Grace - Knitting Factory SaaS
+// Multi-tenant PostgreSQL Schema with Schema-per-tenant isolation
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public", "tenant_template"]
+}
+
+// ==================== PUBLIC SCHEMA (Multi-Tenant Admin) ====================
+
+model Tenant {
+  id                 Int           @id @default(autoincrement())
+  slug               String        @unique @db.VarChar(100)
+  name               String        @db.VarChar(255)
+  schemaName         String        @unique @map("schema_name") @db.VarChar(100)
+  ownerName          String        @map("owner_name") @db.VarChar(255)
+  ownerEmail         String        @map("owner_email") @db.VarChar(255)
+  ownerPhone         String?       @map("owner_phone") @db.VarChar(50)
+  address            String?       @db.Text
+  city               String?       @db.VarChar(100)
+  totalMachines      Int           @default(0) @map("total_machines")
+  factoryType        String        @default("knitting") @map("factory_type") @db.VarChar(50)
+  plan               TenantPlan    @default(TRIAL)
+  status             TenantStatus  @default(PENDING)
+  trialEndsAt        DateTime?     @map("trial_ends_at")
+  subscriptionEndsAt DateTime?     @map("subscription_ends_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  deletedAt          DateTime?     @map("deleted_at")
+  users              TenantUser[]
+
+  @@map("tenants")
+  @@schema("public")
+}
+
+enum TenantPlan {
+  TRIAL
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+
+  @@schema("public")
+}
+
+enum TenantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+
+  @@schema("public")
+}
+
+model TenantUser {
+  id             Int       @id @default(autoincrement())
+  tenantId       Int       @map("tenant_id")
+  email          String    @db.VarChar(255)
+  username       String    @db.VarChar(100)
+  hashedPassword String    @map("hashed_password") @db.VarChar(255)
+  fullName       String?   @map("full_name") @db.VarChar(255)
+  phone          String?   @db.VarChar(50)
+  role           UserRole  @default(OPERATOR)
+  permissions    Json      @default("[]")
+  isActive       Boolean   @default(true) @map("is_active")
+  isVerified     Boolean   @default(false) @map("is_verified")
+  lastLogin      DateTime? @map("last_login")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, username])
+  @@map("tenant_users")
+  @@schema("public")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  FACTORY_OWNER
+  MANAGER
+  SUPERVISOR
+  OPERATOR
+  ACCOUNTANT
+  VIEWER
+
+  @@schema("public")
+}
+
+model AuditLog {
+  id         Int       @id @default(autoincrement())
+  tenantId   Int?      @map("tenant_id")
+  userId     Int?      @map("user_id")
+  action     String    @db.VarChar(100)
+  entityType String    @map("entity_type") @db.VarChar(100)
+  entityId   Int?      @map("entity_id")
+  oldValues  Json?     @map("old_values")
+  newValues  Json?     @map("new_values")
+  ipAddress  String?   @map("ip_address") @db.VarChar(45)
+  userAgent  String?   @map("user_agent") @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+  @@schema("public")
+}
+
+// ==================== TENANT TEMPLATE SCHEMA ====================
+// These models are copied to each tenant's schema on creation
+
+// --- YARN INVENTORY MODULE ---
+
+model YarnType {
+  id                Int        @id @default(autoincrement())
+  code              String     @unique @db.VarChar(50)
+  name              String     @db.VarChar(255)
+  description       String?    @db.Text
+
+  // Core fields
+  brandName         String     @default("") @map("brand_name") @db.VarChar(255)
+  color             String     @default("") @db.VarChar(100)
+  grade             String     @default("A") @db.VarChar(50)
+
+  // Composition (JSON array of {fiberType, percentage})
+  composition       Json?      @db.JsonB
+
+  // Count/thickness
+  countValue        Decimal?   @map("count_value") @db.Decimal(10, 2)
+  countSystem       String?    @map("count_system") @db.VarChar(20) // NE, TEX, DENIER, NM
+
+  // Pricing
+  defaultPricePerKg Decimal?   @map("default_price_per_kg") @db.Decimal(12, 2)
+  priceUnit         String     @default("KG") @map("price_unit") @db.VarChar(10)
+  currency          String     @default("PKR") @db.VarChar(10)
+
+  // Classification
+  category          String?    @db.VarChar(100)
+  tags              String[]   @default([])
+  certifications    String[]   @default([])
+
+  // Status & timestamps
+  isActive          Boolean    @default(true) @map("is_active")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  cones             YarnCone[]
+  boxes             YarnBox[]
+  payOrderItems     PayOrderItem[]
+  ledgerEntries     YarnLedger[]
+  outwards          YarnOutward[]
+  blendItems        YarnTypeKnittingYarn[]
+
+  @@map("yarn_types")
+  @@schema("tenant_template")
+}
+
+// --- KNITTING YARN / BLEND MODULE ---
+
+model KnittingYarn {
+  id                Int        @id @default(autoincrement())
+  code              String     @unique @db.VarChar(50)
+  name              String     @db.VarChar(255)
+  description       String?    @db.Text
+
+  // Computed blend summary (auto-generated from yarnTypes)
+  blendSummary      String?    @map("blend_summary") @db.VarChar(500)
+
+  // Pricing (average of components)
+  defaultPricePerKg Decimal?   @map("default_price_per_kg") @db.Decimal(12, 2)
+
+  // Status & timestamps
+  isActive          Boolean    @default(true) @map("is_active")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  yarnTypes         YarnTypeKnittingYarn[]
+
+  @@map("knitting_yarns")
+  @@schema("tenant_template")
+}
+
+model YarnTypeKnittingYarn {
+  id             Int          @id @default(autoincrement())
+  knittingYarnId Int          @map("knitting_yarn_id")
+  yarnTypeId     Int          @map("yarn_type_id")
+  percentage     Decimal      @db.Decimal(5, 2) // e.g., 50.00 for 50%
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  knittingYarn   KnittingYarn @relation(fields: [knittingYarnId], references: [id], onDelete: Cascade)
+  yarnType       YarnType     @relation(fields: [yarnTypeId], references: [id])
+
+  @@unique([knittingYarnId, yarnTypeId])
+  @@index([knittingYarnId])
+  @@index([yarnTypeId])
+  @@map("yarn_type_knitting_yarn")
+  @@schema("tenant_template")
+}
+
+model YarnVendor {
+  id               Int                 @id @default(autoincrement())
+  code             String              @unique @db.VarChar(50)
+  name             String              @db.VarChar(255)
+  contactPerson    String?             @map("contact_person") @db.VarChar(255)
+  phone            String?             @db.VarChar(50)
+  email            String?             @db.VarChar(255)
+  address          String?             @db.Text
+  city             String?             @db.VarChar(100)
+  creditLimit      Decimal?            @map("credit_limit") @db.Decimal(15, 2)
+  paymentTerms     Int                 @default(30) @map("payment_terms")
+  isActive         Boolean             @default(true) @map("is_active")
+  rating           Int?
+  notes            String?             @db.Text
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  boxes              YarnBox[]
+  payments           VendorPayment[]
+  payOrders          PayOrder[]
+  ledgerEntries      VendorLedgerEntry[]
+  materialReceipts   MaterialReceipt[]
+  materialReturns    MaterialReturn[]
+  cheques            Cheque[]
+  yarnLedgerEntries  YarnLedger[]
+
+  @@map("yarn_vendors")
+  @@schema("tenant_template")
+}
+
+// --- PAY ORDER MODULE (Yarn Purchase Orders) ---
+
+model PayOrder {
+  id                   Int             @id @default(autoincrement())
+  orderNumber          String          @unique @map("order_number") @db.VarChar(50)
+  vendorId             Int             @map("vendor_id")
+  orderDate            DateTime        @map("order_date") @db.Date
+  expectedDeliveryDate DateTime?       @map("expected_delivery_date") @db.Date
+  totalQuantity        Decimal         @default(0) @map("total_quantity") @db.Decimal(12, 3)
+  totalAmount          Decimal?        @map("total_amount") @db.Decimal(15, 2)
+  status               PayOrderStatus  @default(DRAFT)
+  terms                String?         @db.Text
+  notes                String?         @db.Text
+
+  // Workflow tracking
+  createdBy            Int?            @map("created_by")
+  approvedBy           Int?            @map("approved_by")
+  approvedAt           DateTime?       @map("approved_at")
+  sentAt               DateTime?       @map("sent_at")
+
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  vendor               YarnVendor      @relation(fields: [vendorId], references: [id])
+  items                PayOrderItem[]
+  receivedBoxes        YarnBox[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([orderDate])
+  @@map("pay_orders")
+  @@schema("tenant_template")
+}
+
+enum PayOrderStatus {
+  DRAFT
+  APPROVED
+  SENT
+  PARTIALLY_RECEIVED
+  COMPLETED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+model PayOrderItem {
+  id              Int      @id @default(autoincrement())
+  payOrderId      Int      @map("pay_order_id")
+  yarnTypeId      Int      @map("yarn_type_id")
+  orderedQuantity Decimal  @map("ordered_quantity") @db.Decimal(12, 3)
+  receivedQuantity Decimal @default(0) @map("received_quantity") @db.Decimal(12, 3)
+  unit            String   @default("KG") @db.VarChar(20)
+  pricePerUnit    Decimal? @map("price_per_unit") @db.Decimal(12, 2)
+  amount          Decimal? @db.Decimal(15, 2)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  payOrder        PayOrder @relation(fields: [payOrderId], references: [id], onDelete: Cascade)
+  yarnType        YarnType @relation(fields: [yarnTypeId], references: [id])
+
+  @@index([payOrderId])
+  @@index([yarnTypeId])
+  @@map("pay_order_items")
+  @@schema("tenant_template")
+}
+
+model YarnBox {
+  id             Int        @id @default(autoincrement())
+  boxNumber      String     @unique @map("box_number") @db.VarChar(50)
+  vendorId       Int        @map("vendor_id")
+  yarnTypeId     Int        @map("yarn_type_id")
+  lotNumber      String?    @map("lot_number") @db.VarChar(100)
+  grossWeight    Decimal    @map("gross_weight") @db.Decimal(10, 3)
+  tareWeight     Decimal    @default(0) @map("tare_weight") @db.Decimal(10, 3)
+  netWeight      Decimal    @map("net_weight") @db.Decimal(10, 3)
+  pricePerKg     Decimal    @map("price_per_kg") @db.Decimal(12, 2)
+  totalValue     Decimal    @map("total_value") @db.Decimal(15, 2)
+  receivedAt     DateTime   @map("received_at")
+  invoiceNumber  String?    @map("invoice_number") @db.VarChar(100)
+  gatePassNumber String?    @map("gate_pass_number") @db.VarChar(100)
+  payOrderId     Int?       @map("pay_order_id")
+  status         BoxStatus  @default(IN_STOCK)
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  vendor         YarnVendor    @relation(fields: [vendorId], references: [id])
+  yarnType       YarnType      @relation(fields: [yarnTypeId], references: [id])
+  payOrder       PayOrder?     @relation(fields: [payOrderId], references: [id])
+  cones          YarnCone[]
+  outwards       YarnOutward[]
+
+  @@index([vendorId])
+  @@index([yarnTypeId])
+  @@index([payOrderId])
+  @@index([status])
+  @@index([receivedAt])
+  @@map("yarn_boxes")
+  @@schema("tenant_template")
+}
+
+enum BoxStatus {
+  IN_STOCK
+  PARTIALLY_USED
+  EMPTY
+  RETURNED
+
+  @@schema("tenant_template")
+}
+
+model YarnCone {
+  id                Int               @id @default(autoincrement())
+  coneNumber        String            @unique @map("cone_number") @db.VarChar(50)
+  boxId             Int               @map("box_id")
+  yarnTypeId        Int               @map("yarn_type_id")
+  initialWeight     Decimal           @map("initial_weight") @db.Decimal(10, 3)
+  currentWeight     Decimal           @map("current_weight") @db.Decimal(10, 3)
+  usedWeight        Decimal           @default(0) @map("used_weight") @db.Decimal(10, 3)
+  status            ConeStatus        @default(AVAILABLE)
+  assignedMachineId Int?              @map("assigned_machine_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  box               YarnBox           @relation(fields: [boxId], references: [id])
+  yarnType          YarnType          @relation(fields: [yarnTypeId], references: [id])
+  machine           Machine?          @relation(fields: [assignedMachineId], references: [id])
+  consumptions      YarnConsumption[]
+
+  @@index([boxId])
+  @@index([yarnTypeId])
+  @@index([status])
+  @@map("yarn_cones")
+  @@schema("tenant_template")
+}
+
+enum ConeStatus {
+  AVAILABLE
+  IN_USE
+  EMPTY
+  DEFECTIVE
+
+  @@schema("tenant_template")
+}
+
+// --- MACHINE & PRODUCTION MODULE ---
+
+model Machine {
+  id                Int             @id @default(autoincrement())
+  machineNumber     String          @unique @map("machine_number") @db.VarChar(50)
+  name              String          @db.VarChar(255)
+  brand             String?         @db.VarChar(100)
+  model             String?         @db.VarChar(100)
+  serialNumber      String?         @map("serial_number") @db.VarChar(100)
+  machineType       MachineType     @map("machine_type")
+  gauge             Int?
+  diameter          Int?
+  feeders           Int?
+  location          String?         @db.VarChar(100)
+  position          String?         @db.VarChar(50)
+  status            MachineStatus   @default(OPERATIONAL)
+  lastMaintenanceAt DateTime?       @map("last_maintenance_at")
+  nextMaintenanceAt DateTime?       @map("next_maintenance_at")
+  installationDate  DateTime?       @map("installation_date")
+
+  // Needle configuration
+  needleGauge       Int?            @map("needle_gauge")
+  totalNeedleSlots  Int?            @map("total_needle_slots")
+  cylinderNeedles   Int?            @map("cylinder_needles")
+  dialNeedles       Int?            @map("dial_needles")
+
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  cones             YarnCone[]
+  productionLogs    ProductionLog[]
+  downtimeLogs      DowntimeLog[]
+  needleAllocations NeedleMachineAllocation[]
+  fabrics           Fabric[]
+  yarnOutwards      YarnOutward[]
+
+  @@index([status])
+  @@map("machines")
+  @@schema("tenant_template")
+}
+
+enum MachineType {
+  CIRCULAR_KNITTING
+  FLAT_KNITTING
+  WARP_KNITTING
+  JACQUARD
+
+  @@schema("tenant_template")
+}
+
+enum MachineStatus {
+  OPERATIONAL
+  MAINTENANCE
+  BREAKDOWN
+  IDLE
+  DECOMMISSIONED
+
+  @@schema("tenant_template")
+}
+
+model Shift {
+  id             Int             @id @default(autoincrement())
+  name           String          @db.VarChar(100)
+  code           String          @unique @db.VarChar(10)
+  startTime      String          @map("start_time") @db.VarChar(5)
+  endTime        String          @map("end_time") @db.VarChar(5)
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  productionLogs ProductionLog[]
+  yarnOutwards   YarnOutward[]
+
+  @@map("shifts")
+  @@schema("tenant_template")
+}
+
+model ProductionLog {
+  id             Int               @id @default(autoincrement())
+  machineId      Int               @map("machine_id")
+  shiftId        Int               @map("shift_id")
+  operatorId     Int?              @map("operator_id")
+  productionDate DateTime          @map("production_date") @db.Date
+  fabricType     String            @map("fabric_type") @db.VarChar(100)
+  targetWeight   Decimal?          @map("target_weight") @db.Decimal(10, 3)
+  actualWeight   Decimal           @map("actual_weight") @db.Decimal(10, 3)
+  rollsProduced  Int               @default(0) @map("rolls_produced")
+  efficiency     Decimal?          @db.Decimal(5, 2)
+  defectCount    Int               @default(0) @map("defect_count")
+  startTime      DateTime          @map("start_time")
+  endTime        DateTime?         @map("end_time")
+  totalHours     Decimal?          @map("total_hours") @db.Decimal(5, 2)
+  notes          String?           @db.Text
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  machine        Machine           @relation(fields: [machineId], references: [id])
+  shift          Shift             @relation(fields: [shiftId], references: [id])
+  consumptions   YarnConsumption[]
+  rolls          Roll[]
+
+  @@index([machineId, productionDate])
+  @@index([shiftId])
+  @@index([productionDate])
+  @@map("production_logs")
+  @@schema("tenant_template")
+}
+
+model YarnConsumption {
+  id              Int           @id @default(autoincrement())
+  productionLogId Int           @map("production_log_id")
+  coneId          Int           @map("cone_id")
+  weightBefore    Decimal       @map("weight_before") @db.Decimal(10, 3)
+  weightAfter     Decimal       @map("weight_after") @db.Decimal(10, 3)
+  weightUsed      Decimal       @map("weight_used") @db.Decimal(10, 3)
+  recordedAt      DateTime      @default(now()) @map("recorded_at")
+  productionLog   ProductionLog @relation(fields: [productionLogId], references: [id], onDelete: Cascade)
+  cone            YarnCone      @relation(fields: [coneId], references: [id])
+
+  @@index([productionLogId])
+  @@index([coneId])
+  @@map("yarn_consumption")
+  @@schema("tenant_template")
+}
+
+model DowntimeLog {
+  id              Int            @id @default(autoincrement())
+  machineId       Int            @map("machine_id")
+  reason          DowntimeReason
+  description     String?        @db.Text
+  startTime       DateTime       @map("start_time")
+  endTime         DateTime?      @map("end_time")
+  durationMinutes Int?           @map("duration_minutes")
+  resolvedBy      Int?           @map("resolved_by")
+  resolution      String?        @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  machine         Machine        @relation(fields: [machineId], references: [id])
+
+  @@index([machineId])
+  @@index([startTime])
+  @@map("downtime_logs")
+  @@schema("tenant_template")
+}
+
+enum DowntimeReason {
+  BREAKDOWN
+  MAINTENANCE
+  YARN_CHANGE
+  POWER_OUTAGE
+  NO_OPERATOR
+  NO_YARN
+  QUALITY_ISSUE
+  OTHER
+
+  @@schema("tenant_template")
+}
+
+// --- ROLL & GREY STOCK MODULE ---
+
+model Roll {
+  id              Int                 @id @default(autoincrement())
+  rollNumber      String              @unique @map("roll_number") @db.VarChar(50)
+  productionLogId Int?                @map("production_log_id")
+  machineId       Int                 @map("machine_id")
+  fabricType      String              @map("fabric_type") @db.VarChar(100)
+  width           Decimal?            @db.Decimal(6, 2)
+  gsm             Int?
+  greyWeight      Decimal             @map("grey_weight") @db.Decimal(10, 3)
+  finishedWeight  Decimal?            @map("finished_weight") @db.Decimal(10, 3)
+  greyLength      Decimal?            @map("grey_length") @db.Decimal(10, 2)
+  finishedLength  Decimal?            @map("finished_length") @db.Decimal(10, 2)
+  grade           String              @default("A") @db.VarChar(10)
+  defects         Json?
+  status          RollStatus          @default(GREY_STOCK)
+  currentLocation String?             @map("current_location") @db.VarChar(100)
+  producedAt      DateTime            @map("produced_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  productionLog   ProductionLog?      @relation(fields: [productionLogId], references: [id])
+  statusHistory   RollStatusHistory[]
+  dyeingItems     DyeingOrderItem[]
+  saleItems       SaleItem[]
+
+  @@index([status])
+  @@index([fabricType])
+  @@index([producedAt])
+  @@map("rolls")
+  @@schema("tenant_template")
+}
+
+enum RollStatus {
+  GREY_STOCK
+  SENT_FOR_DYEING
+  AT_DYEING
+  DYEING_COMPLETE
+  FINISHED_STOCK
+  SOLD
+  REJECTED
+
+  @@schema("tenant_template")
+}
+
+model RollStatusHistory {
+  id         Int         @id @default(autoincrement())
+  rollId     Int         @map("roll_id")
+  fromStatus RollStatus? @map("from_status")
+  toStatus   RollStatus  @map("to_status")
+  changedBy  Int?        @map("changed_by")
+  notes      String?     @db.Text
+  changedAt  DateTime    @default(now()) @map("changed_at")
+  roll       Roll        @relation(fields: [rollId], references: [id], onDelete: Cascade)
+
+  @@index([rollId])
+  @@index([changedAt])
+  @@map("roll_status_history")
+  @@schema("tenant_template")
+}
+
+model GreyStockSummary {
+  id             Int      @id @default(autoincrement())
+  fabricType     String   @map("fabric_type") @db.VarChar(100)
+  recordDate     DateTime @map("record_date") @db.Date
+  openingRolls   Int      @map("opening_rolls")
+  openingWeight  Decimal  @map("opening_weight") @db.Decimal(12, 3)
+  producedRolls  Int      @map("produced_rolls")
+  producedWeight Decimal  @map("produced_weight") @db.Decimal(12, 3)
+  sentForDyeing  Int      @map("sent_for_dyeing")
+  sentWeight     Decimal  @map("sent_weight") @db.Decimal(12, 3)
+  closingRolls   Int      @map("closing_rolls")
+  closingWeight  Decimal  @map("closing_weight") @db.Decimal(12, 3)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([fabricType, recordDate])
+  @@index([recordDate])
+  @@map("grey_stock_summary")
+  @@schema("tenant_template")
+}
+
+// --- DYEING MODULE ---
+
+model DyeingVendor {
+  id                   Int                 @id @default(autoincrement())
+  code                 String              @unique @db.VarChar(50)
+  name                 String              @db.VarChar(255)
+  contactPerson        String?             @map("contact_person") @db.VarChar(255)
+  phone                String?             @db.VarChar(50)
+  email                String?             @db.VarChar(255)
+  address              String?             @db.Text
+  city                 String?             @db.VarChar(100)
+  averageTurnaroundDays Int?               @map("average_turnaround_days")
+  qualityRating        Decimal?            @map("quality_rating") @db.Decimal(3, 2)
+  creditLimit          Decimal?            @map("credit_limit") @db.Decimal(15, 2)
+  paymentTerms         Int                 @default(30) @map("payment_terms")
+  isActive             Boolean             @default(true) @map("is_active")
+  notes                String?             @db.Text
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  dyeingOrders         DyeingOrder[]
+  payments             VendorPayment[]
+  ledgerEntries        VendorLedgerEntry[]
+  materialReceipts     MaterialReceipt[]
+  materialReturns      MaterialReturn[]
+  cheques              Cheque[]
+
+  @@map("dyeing_vendors")
+  @@schema("tenant_template")
+}
+
+model GeneralSupplier {
+  id              Int                 @id @default(autoincrement())
+  code            String              @unique @db.VarChar(50)
+  name            String              @db.VarChar(255)
+  supplierType    String?             @map("supplier_type") @db.VarChar(100) // e.g., "Needles", "Spare Parts", "Chemicals"
+  contactPerson   String?             @map("contact_person") @db.VarChar(255)
+  phone           String?             @db.VarChar(50)
+  email           String?             @db.VarChar(255)
+  address         String?             @db.Text
+  city            String?             @db.VarChar(100)
+  ntn             String?             @db.VarChar(50)
+  strn            String?             @db.VarChar(50)
+  creditLimit     Decimal?            @map("credit_limit") @db.Decimal(15, 2)
+  paymentTerms    Int                 @default(30) @map("payment_terms")
+  bankDetails     Json?               @map("bank_details") @db.JsonB
+  rating          Int?
+  notes           String?             @db.Text
+  isActive        Boolean             @default(true) @map("is_active")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  ledgerEntries   VendorLedgerEntry[]
+  payments        VendorPayment[]
+  materialReceipts MaterialReceipt[]
+  materialReturns MaterialReturn[]
+  cheques         Cheque[]
+
+  @@map("general_suppliers")
+  @@schema("tenant_template")
+}
+
+model DyeingOrder {
+  id              Int               @id @default(autoincrement())
+  orderNumber     String            @unique @map("order_number") @db.VarChar(50)
+  vendorId        Int               @map("vendor_id")
+  colorCode       String?           @map("color_code") @db.VarChar(50)
+  colorName       String?           @map("color_name") @db.VarChar(100)
+  processType     String?           @map("process_type") @db.VarChar(100)
+  sentWeight      Decimal           @map("sent_weight") @db.Decimal(12, 3)
+  receivedWeight  Decimal?          @map("received_weight") @db.Decimal(12, 3)
+  weightGainLoss  Decimal?          @map("weight_gain_loss") @db.Decimal(12, 3)
+  weightVariance  Decimal?          @map("weight_variance") @db.Decimal(5, 2)
+  ratePerKg       Decimal           @map("rate_per_kg") @db.Decimal(10, 2)
+  totalAmount     Decimal?          @map("total_amount") @db.Decimal(15, 2)
+  sentAt          DateTime          @map("sent_at")
+  expectedReturnAt DateTime?         @map("expected_return_at")
+  receivedAt      DateTime?         @map("received_at")
+  status          DyeingStatus      @default(SENT)
+  qualityNotes    String?           @map("quality_notes") @db.Text
+  outwardChallan  String?           @map("outward_challan") @db.VarChar(100)
+  inwardChallan   String?           @map("inward_challan") @db.VarChar(100)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  vendor          DyeingVendor      @relation(fields: [vendorId], references: [id])
+  items           DyeingOrderItem[]
+
+  @@index([vendorId])
+  @@index([status])
+  @@index([sentAt])
+  @@map("dyeing_orders")
+  @@schema("tenant_template")
+}
+
+enum DyeingStatus {
+  SENT
+  IN_PROCESS
+  READY
+  PARTIALLY_RECEIVED
+  COMPLETED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+model DyeingOrderItem {
+  id             Int         @id @default(autoincrement())
+  dyeingOrderId  Int         @map("dyeing_order_id")
+  rollId         Int         @map("roll_id")
+  sentWeight     Decimal     @map("sent_weight") @db.Decimal(10, 3)
+  receivedWeight Decimal?    @map("received_weight") @db.Decimal(10, 3)
+  isReceived     Boolean     @default(false) @map("is_received")
+  grade          String?     @db.VarChar(10)
+  defects        String?     @db.Text
+  createdAt      DateTime    @default(now()) @map("created_at")
+  dyeingOrder    DyeingOrder @relation(fields: [dyeingOrderId], references: [id], onDelete: Cascade)
+  roll           Roll        @relation(fields: [rollId], references: [id])
+
+  @@index([dyeingOrderId])
+  @@index([rollId])
+  @@map("dyeing_order_items")
+  @@schema("tenant_template")
+}
+
+// --- SALES MODULE ---
+
+model Customer {
+  id                   Int                   @id @default(autoincrement())
+  code                 String                @unique @db.VarChar(50)
+  name                 String                @db.VarChar(255)
+  businessName         String?               @map("business_name") @db.VarChar(255)
+  contactPerson        String?               @map("contact_person") @db.VarChar(255)
+  phone                String?               @db.VarChar(50)
+  email                String?               @db.VarChar(255)
+  address              String?               @db.Text
+  city                 String?               @db.VarChar(100)
+  ntn                  String?               @db.VarChar(50)
+  strn                 String?               @db.VarChar(50)
+  creditLimit          Decimal?              @map("credit_limit") @db.Decimal(15, 2)
+  paymentTerms         Int                   @default(30) @map("payment_terms")
+  isActive             Boolean               @default(true) @map("is_active")
+  customerType         CustomerType          @default(REGULAR) @map("customer_type")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  salesOrders          SalesOrder[]
+  ledgerEntries        CustomerLedgerEntry[]
+  payments             CustomerPayment[]
+  cheques              Cheque[]
+  materialTransactions MaterialTransaction[]
+
+  @@map("customers")
+  @@schema("tenant_template")
+}
+
+enum CustomerType {
+  REGULAR
+  WHOLESALE
+  RETAIL
+  EXPORT
+
+  @@schema("tenant_template")
+}
+
+model SalesOrder {
+  id            Int           @id @default(autoincrement())
+  orderNumber   String        @unique @map("order_number") @db.VarChar(50)
+  customerId    Int           @map("customer_id")
+  orderDate     DateTime      @map("order_date") @db.Date
+  deliveryDate  DateTime?     @map("delivery_date") @db.Date
+  subtotal      Decimal       @db.Decimal(15, 2)
+  discount      Decimal       @default(0) @db.Decimal(15, 2)
+  taxAmount     Decimal       @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  totalAmount   Decimal       @map("total_amount") @db.Decimal(15, 2)
+  paidAmount    Decimal       @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  balanceAmount Decimal       @map("balance_amount") @db.Decimal(15, 2)
+  paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+  status        OrderStatus   @default(PENDING)
+  notes         String?       @db.Text
+  invoiceNumber String?       @map("invoice_number") @db.VarChar(100)
+  invoicedAt    DateTime?     @map("invoiced_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  items         SaleItem[]
+
+  @@index([customerId])
+  @@index([orderDate])
+  @@index([status])
+  @@map("sales_orders")
+  @@schema("tenant_template")
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+
+  @@schema("tenant_template")
+}
+
+model SaleItem {
+  id           Int        @id @default(autoincrement())
+  salesOrderId Int        @map("sales_order_id")
+  rollId       Int?       @map("roll_id")
+  fabricType   String     @map("fabric_type") @db.VarChar(100)
+  color        String?    @db.VarChar(100)
+  weight       Decimal    @db.Decimal(10, 3)
+  length       Decimal?   @db.Decimal(10, 2)
+  ratePerKg    Decimal    @map("rate_per_kg") @db.Decimal(10, 2)
+  amount       Decimal    @db.Decimal(15, 2)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  roll         Roll?      @relation(fields: [rollId], references: [id])
+
+  @@index([salesOrderId])
+  @@index([rollId])
+  @@map("sale_items")
+  @@schema("tenant_template")
+}
+
+model CustomerLedgerEntry {
+  id              Int             @id @default(autoincrement())
+  customerId      Int             @map("customer_id")
+  entryDate       DateTime        @map("entry_date") @db.Date
+  entryType       LedgerEntryType @map("entry_type")
+  referenceType   String?         @map("reference_type") @db.VarChar(50)
+  referenceId     Int?            @map("reference_id")
+  referenceNumber String?         @map("reference_number") @db.VarChar(100)
+  debit           Decimal         @default(0) @db.Decimal(15, 2)
+  credit          Decimal         @default(0) @db.Decimal(15, 2)
+  balance         Decimal         @db.Decimal(15, 2)
+  description     String?         @db.Text
+
+  // Link to journal entry (for double-entry accounting)
+  journalEntryId  Int?            @map("journal_entry_id")
+  journalLineId   Int?            @map("journal_line_id")
+
+  createdAt       DateTime        @default(now()) @map("created_at")
+  customer        Customer        @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@index([entryDate])
+  @@index([journalEntryId])
+  @@map("customer_ledger_entries")
+  @@schema("tenant_template")
+}
+
+enum LedgerEntryType {
+  OPENING_BALANCE
+  SALE
+  PAYMENT_RECEIVED
+  RETURN
+  ADJUSTMENT
+
+  @@schema("tenant_template")
+}
+
+model CustomerPayment {
+  id             Int           @id @default(autoincrement())
+  customerId     Int           @map("customer_id")
+  paymentDate    DateTime      @map("payment_date") @db.Date
+  amount         Decimal       @db.Decimal(15, 2)
+  paymentMethod  PaymentMethod @map("payment_method")
+  receiptNumber  String?       @map("receipt_number") @db.VarChar(100)
+  bankName       String?       @map("bank_name") @db.VarChar(100)
+  chequeNumber   String?       @map("cheque_number") @db.VarChar(100)
+  transactionRef String?       @map("transaction_ref") @db.VarChar(100)
+  notes          String?       @db.Text
+  createdBy      Int?          @map("created_by")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  cheques        Cheque[]
+
+  @@index([customerId])
+  @@index([paymentDate])
+  @@map("customer_payments")
+  @@schema("tenant_template")
+}
+
+enum PaymentMethod {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+  ONLINE
+
+  @@schema("tenant_template")
+}
+
+// --- FINANCE MODULE ---
+
+model VendorPayment {
+  id                Int              @id @default(autoincrement())
+  vendorType        VendorType       @map("vendor_type")
+  yarnVendorId      Int?             @map("yarn_vendor_id")
+  dyeingVendorId    Int?             @map("dyeing_vendor_id")
+  generalSupplierId Int?             @map("general_supplier_id")
+  paymentDate       DateTime         @map("payment_date") @db.Date
+  amount            Decimal          @db.Decimal(15, 2)
+  paymentMethod     PaymentMethod    @map("payment_method")
+  voucherNumber     String?          @map("voucher_number") @db.VarChar(100)
+  chequeNumber      String?          @map("cheque_number") @db.VarChar(100)
+  bankName          String?          @map("bank_name") @db.VarChar(100)
+  transactionRef    String?          @map("transaction_ref") @db.VarChar(100)
+  notes             String?          @db.Text
+  createdBy         Int?             @map("created_by")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  yarnVendor        YarnVendor?      @relation(fields: [yarnVendorId], references: [id])
+  dyeingVendor      DyeingVendor?    @relation(fields: [dyeingVendorId], references: [id])
+  generalSupplier   GeneralSupplier? @relation(fields: [generalSupplierId], references: [id])
+  cheques           Cheque[]
+
+  @@index([vendorType])
+  @@index([paymentDate])
+  @@index([generalSupplierId])
+  @@map("vendor_payments")
+  @@schema("tenant_template")
+}
+
+enum VendorType {
+  YARN
+  DYEING
+  GENERAL
+
+  @@schema("tenant_template")
+}
+
+enum VendorLedgerType {
+  OPENING_BALANCE
+  PURCHASE
+  PAYMENT_MADE
+  RETURN
+  ADJUSTMENT
+  DEBIT_NOTE
+  CREDIT_NOTE
+
+  @@schema("tenant_template")
+}
+
+enum ChequeType {
+  ISSUED
+  RECEIVED
+
+  @@schema("tenant_template")
+}
+
+enum ChequeStatus {
+  PENDING
+  DEPOSITED
+  CLEARED
+  BOUNCED
+  CANCELLED
+  REPLACED
+
+  @@schema("tenant_template")
+}
+
+enum MaterialReceiptType {
+  PURCHASE
+  RETURN_IN
+  ADJUSTMENT
+
+  @@schema("tenant_template")
+}
+
+enum MaterialTransactionType {
+  SALE
+  RETURN
+  SAMPLE
+  ADJUSTMENT
+
+  @@schema("tenant_template")
+}
+
+enum QualityStatus {
+  PENDING_INSPECTION
+  APPROVED
+  REJECTED
+  PARTIAL
+
+  @@schema("tenant_template")
+}
+
+enum MaterialIssueType {
+  WRONG_TYPE
+  QUALITY_DEFECT
+  SHORT_WEIGHT
+  DAMAGED
+  COLOR_MISMATCH
+  OTHER
+
+  @@schema("tenant_template")
+}
+
+enum ReplacementStatus {
+  REPORTED
+  RETURN_PENDING
+  RETURNED
+  REPLACEMENT_PENDING
+  REPLACED
+  CREDITED
+  CLOSED
+
+  @@schema("tenant_template")
+}
+
+// --- VENDOR LEDGER (Unified for all vendor types) ---
+
+model VendorLedgerEntry {
+  id                Int              @id @default(autoincrement())
+  vendorType        VendorType       @map("vendor_type")
+  yarnVendorId      Int?             @map("yarn_vendor_id")
+  dyeingVendorId    Int?             @map("dyeing_vendor_id")
+  generalSupplierId Int?             @map("general_supplier_id")
+  entryDate         DateTime         @map("entry_date") @db.Date
+  entryType         VendorLedgerType @map("entry_type")
+  debit             Decimal          @default(0) @db.Decimal(15, 2)
+  credit            Decimal          @default(0) @db.Decimal(15, 2)
+  balance           Decimal          @db.Decimal(15, 2) // Running balance
+  referenceType     String?          @map("reference_type") @db.VarChar(50) // 'pay_order', 'payment', 'receipt', 'return'
+  referenceId       Int?             @map("reference_id")
+  referenceNumber   String?          @map("reference_number") @db.VarChar(100)
+  description       String?          @db.Text
+
+  // Link to journal entry (for double-entry accounting)
+  journalEntryId    Int?             @map("journal_entry_id")
+  journalLineId     Int?             @map("journal_line_id")
+
+  createdBy         Int?             @map("created_by")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  yarnVendor        YarnVendor?      @relation(fields: [yarnVendorId], references: [id])
+  dyeingVendor      DyeingVendor?    @relation(fields: [dyeingVendorId], references: [id])
+  generalSupplier   GeneralSupplier? @relation(fields: [generalSupplierId], references: [id])
+
+  @@index([vendorType])
+  @@index([yarnVendorId])
+  @@index([dyeingVendorId])
+  @@index([generalSupplierId])
+  @@index([entryDate])
+  @@index([entryType])
+  @@index([journalEntryId])
+  @@map("vendor_ledger_entries")
+  @@schema("tenant_template")
+}
+
+// --- MATERIAL RECEIPTS (Track goods received from vendors) ---
+
+model MaterialReceipt {
+  id                Int                 @id @default(autoincrement())
+  receiptNumber     String              @unique @map("receipt_number") @db.VarChar(50)
+  vendorType        VendorType          @map("vendor_type")
+  yarnVendorId      Int?                @map("yarn_vendor_id")
+  dyeingVendorId    Int?                @map("dyeing_vendor_id")
+  generalSupplierId Int?                @map("general_supplier_id")
+  receiptDate       DateTime            @map("receipt_date") @db.Date
+  receiptType       MaterialReceiptType @map("receipt_type")
+  invoiceNumber     String?             @map("invoice_number") @db.VarChar(100)
+  gatePassNumber    String?             @map("gate_pass_number") @db.VarChar(100)
+  vehicleNumber     String?             @map("vehicle_number") @db.VarChar(50)
+  payOrderId        Int?                @map("pay_order_id") // Link to PayOrder if applicable
+
+  // Quantity summary
+  orderedQty        Decimal?            @map("ordered_qty") @db.Decimal(12, 3)
+  receivedQty       Decimal             @map("received_qty") @db.Decimal(12, 3)
+  acceptedQty       Decimal             @map("accepted_qty") @db.Decimal(12, 3)
+  rejectedQty       Decimal             @default(0) @map("rejected_qty") @db.Decimal(12, 3)
+  unit              String              @default("KG") @db.VarChar(20)
+
+  // Financial summary
+  ratePerUnit       Decimal?            @map("rate_per_unit") @db.Decimal(12, 2)
+  grossAmount       Decimal             @map("gross_amount") @db.Decimal(15, 2)
+  discountAmount    Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  taxAmount         Decimal             @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  netAmount         Decimal             @map("net_amount") @db.Decimal(15, 2)
+
+  // Quality inspection
+  qualityStatus     QualityStatus       @default(PENDING_INSPECTION) @map("quality_status")
+  qualityCheckedBy  Int?                @map("quality_checked_by")
+  qualityCheckedAt  DateTime?           @map("quality_checked_at")
+  qualityNotes      String?             @map("quality_notes") @db.Text
+
+  // Issue tracking
+  hasIssue          Boolean             @default(false) @map("has_issue")
+  issueType         MaterialIssueType?  @map("issue_type")
+  issueDescription  String?             @map("issue_description") @db.Text
+
+  notes             String?             @db.Text
+  createdBy         Int?                @map("created_by")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  yarnVendor        YarnVendor?         @relation(fields: [yarnVendorId], references: [id])
+  dyeingVendor      DyeingVendor?       @relation(fields: [dyeingVendorId], references: [id])
+  generalSupplier   GeneralSupplier?    @relation(fields: [generalSupplierId], references: [id])
+  items             MaterialReceiptItem[]
+  returns           MaterialReturn[]
+
+  @@index([vendorType])
+  @@index([yarnVendorId])
+  @@index([dyeingVendorId])
+  @@index([generalSupplierId])
+  @@index([receiptDate])
+  @@index([qualityStatus])
+  @@map("material_receipts")
+  @@schema("tenant_template")
+}
+
+model MaterialReceiptItem {
+  id              Int             @id @default(autoincrement())
+  receiptId       Int             @map("receipt_id")
+  productId       Int?            @map("product_id") // Link to Product if applicable
+  yarnTypeId      Int?            @map("yarn_type_id") // Link to YarnType if applicable
+  itemDescription String          @map("item_description") @db.VarChar(255)
+  orderedQty      Decimal?        @map("ordered_qty") @db.Decimal(12, 3)
+  receivedQty     Decimal         @map("received_qty") @db.Decimal(12, 3)
+  acceptedQty     Decimal         @map("accepted_qty") @db.Decimal(12, 3)
+  rejectedQty     Decimal         @default(0) @map("rejected_qty") @db.Decimal(12, 3)
+  unit            String          @default("KG") @db.VarChar(20)
+  ratePerUnit     Decimal         @map("rate_per_unit") @db.Decimal(12, 2)
+  amount          Decimal         @db.Decimal(15, 2)
+  qualityStatus   QualityStatus   @default(PENDING_INSPECTION) @map("quality_status")
+  qualityNotes    String?         @map("quality_notes") @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  receipt         MaterialReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([productId])
+  @@index([yarnTypeId])
+  @@map("material_receipt_items")
+  @@schema("tenant_template")
+}
+
+// --- MATERIAL RETURNS (Track returns to vendors with replacement workflow) ---
+
+model MaterialReturn {
+  id                    Int               @id @default(autoincrement())
+  returnNumber          String            @unique @map("return_number") @db.VarChar(50)
+  vendorType            VendorType        @map("vendor_type")
+  yarnVendorId          Int?              @map("yarn_vendor_id")
+  dyeingVendorId        Int?              @map("dyeing_vendor_id")
+  generalSupplierId     Int?              @map("general_supplier_id")
+  materialReceiptId     Int?              @map("material_receipt_id") // Original receipt being returned
+  returnDate            DateTime          @map("return_date") @db.Date
+  returnChallanNumber   String?           @map("return_challan_number") @db.VarChar(100)
+
+  // Issue details
+  issueType             MaterialIssueType @map("issue_type")
+  issueDescription      String?           @map("issue_description") @db.Text
+
+  // Quantity and value
+  returnedQuantity      Decimal           @map("returned_quantity") @db.Decimal(12, 3)
+  unit                  String            @default("KG") @db.VarChar(20)
+  returnValue           Decimal           @map("return_value") @db.Decimal(15, 2)
+
+  // Replacement workflow
+  replacementStatus     ReplacementStatus @default(REPORTED) @map("replacement_status")
+  replacementQuantity   Decimal?          @map("replacement_quantity") @db.Decimal(12, 3)
+  replacementDate       DateTime?         @map("replacement_date") @db.Date
+  replacementReceiptId  Int?              @map("replacement_receipt_id") // Link to new receipt
+
+  // Credit handling (if no replacement)
+  creditAmount          Decimal?          @map("credit_amount") @db.Decimal(15, 2)
+  creditDate            DateTime?         @map("credit_date") @db.Date
+  creditNoteNumber      String?           @map("credit_note_number") @db.VarChar(100)
+
+  // Resolution
+  resolvedAt            DateTime?         @map("resolved_at")
+  resolvedBy            Int?              @map("resolved_by")
+  resolutionNotes       String?           @map("resolution_notes") @db.Text
+
+  notes                 String?           @db.Text
+  createdBy             Int?              @map("created_by")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  yarnVendor            YarnVendor?       @relation(fields: [yarnVendorId], references: [id])
+  dyeingVendor          DyeingVendor?     @relation(fields: [dyeingVendorId], references: [id])
+  generalSupplier       GeneralSupplier?  @relation(fields: [generalSupplierId], references: [id])
+  materialReceipt       MaterialReceipt?  @relation(fields: [materialReceiptId], references: [id])
+
+  @@index([vendorType])
+  @@index([yarnVendorId])
+  @@index([dyeingVendorId])
+  @@index([generalSupplierId])
+  @@index([returnDate])
+  @@index([replacementStatus])
+  @@map("material_returns")
+  @@schema("tenant_template")
+}
+
+// --- CHEQUE MANAGEMENT (Full lifecycle tracking) ---
+
+model Cheque {
+  id                  Int                   @id @default(autoincrement())
+  chequeNumber        String                @map("cheque_number") @db.VarChar(50)
+  chequeType          ChequeType            @map("cheque_type") // ISSUED (we give) or RECEIVED (we get)
+
+  // Entity references (one will be set based on cheque type and entity)
+  customerId          Int?                  @map("customer_id")
+  yarnVendorId        Int?                  @map("yarn_vendor_id")
+  dyeingVendorId      Int?                  @map("dyeing_vendor_id")
+  generalSupplierId   Int?                  @map("general_supplier_id")
+
+  // Bank details
+  bankName            String                @map("bank_name") @db.VarChar(100)
+  branchName          String?               @map("branch_name") @db.VarChar(100)
+  accountNumber       String?               @map("account_number") @db.VarChar(50)
+
+  // Amount
+  amount              Decimal               @db.Decimal(15, 2)
+
+  // Dates
+  chequeDate          DateTime              @map("cheque_date") @db.Date // Date on cheque
+  receivedDate        DateTime?             @map("received_date") @db.Date // When we received it
+  depositDate         DateTime?             @map("deposit_date") @db.Date // When deposited in bank
+  clearanceDate       DateTime?             @map("clearance_date") @db.Date // When cleared
+  bouncedDate         DateTime?             @map("bounced_date") @db.Date // If bounced
+
+  // Status
+  status              ChequeStatus          @default(PENDING)
+  bounceReason        String?               @map("bounce_reason") @db.Text
+  bounceCharges       Decimal?              @map("bounce_charges") @db.Decimal(10, 2)
+  bounceCount         Int                   @default(0) @map("bounce_count")
+
+  // Replacement tracking
+  replacedByChequeId  Int?                  @unique @map("replaced_by_cheque_id")
+  originalChequeId    Int?                  @map("original_cheque_id") // If this is a replacement cheque
+
+  // Link to payments
+  customerPaymentId   Int?                  @map("customer_payment_id")
+  vendorPaymentId     Int?                  @map("vendor_payment_id")
+
+  notes               String?               @db.Text
+  createdBy           Int?                  @map("created_by")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  customer            Customer?             @relation(fields: [customerId], references: [id])
+  yarnVendor          YarnVendor?           @relation(fields: [yarnVendorId], references: [id])
+  dyeingVendor        DyeingVendor?         @relation(fields: [dyeingVendorId], references: [id])
+  generalSupplier     GeneralSupplier?      @relation(fields: [generalSupplierId], references: [id])
+  customerPayment     CustomerPayment?      @relation(fields: [customerPaymentId], references: [id])
+  vendorPayment       VendorPayment?        @relation(fields: [vendorPaymentId], references: [id])
+  replacedBy          Cheque?               @relation("ChequeReplacement", fields: [replacedByChequeId], references: [id])
+  replaces            Cheque?               @relation("ChequeReplacement")
+  statusHistory       ChequeStatusHistory[]
+
+  @@index([chequeType])
+  @@index([customerId])
+  @@index([yarnVendorId])
+  @@index([dyeingVendorId])
+  @@index([generalSupplierId])
+  @@index([status])
+  @@index([chequeDate])
+  @@index([depositDate])
+  @@map("cheques")
+  @@schema("tenant_template")
+}
+
+model ChequeStatusHistory {
+  id          Int          @id @default(autoincrement())
+  chequeId    Int          @map("cheque_id")
+  fromStatus  ChequeStatus? @map("from_status")
+  toStatus    ChequeStatus @map("to_status")
+  changedBy   Int?         @map("changed_by")
+  reason      String?      @db.Text
+  changedAt   DateTime     @default(now()) @map("changed_at")
+
+  cheque      Cheque       @relation(fields: [chequeId], references: [id], onDelete: Cascade)
+
+  @@index([chequeId])
+  @@index([changedAt])
+  @@map("cheque_status_history")
+  @@schema("tenant_template")
+}
+
+// --- MATERIAL TRANSACTIONS (Customer sales/returns/samples) ---
+
+model MaterialTransaction {
+  id                Int                     @id @default(autoincrement())
+  transactionNumber String                  @unique @map("transaction_number") @db.VarChar(50)
+  customerId        Int                     @map("customer_id")
+  transactionDate   DateTime                @map("transaction_date") @db.Date
+  transactionType   MaterialTransactionType @map("transaction_type")
+  referenceNumber   String?                 @map("reference_number") @db.VarChar(100) // Delivery Challan, Invoice, etc.
+
+  // Financial summary
+  subtotal          Decimal                 @db.Decimal(15, 2)
+  discountAmount    Decimal                 @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  taxAmount         Decimal                 @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  totalAmount       Decimal                 @map("total_amount") @db.Decimal(15, 2)
+
+  // Delivery details
+  deliveryAddress   String?                 @map("delivery_address") @db.Text
+  vehicleNumber     String?                 @map("vehicle_number") @db.VarChar(50)
+
+  // Links
+  salesOrderId      Int?                    @map("sales_order_id")
+  ledgerEntryId     Int?                    @map("ledger_entry_id") // Link to CustomerLedgerEntry
+
+  notes             String?                 @db.Text
+  createdBy         Int?                    @map("created_by")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+
+  customer          Customer                @relation(fields: [customerId], references: [id])
+  items             MaterialTransactionItem[]
+
+  @@index([customerId])
+  @@index([transactionDate])
+  @@index([transactionType])
+  @@index([salesOrderId])
+  @@map("material_transactions")
+  @@schema("tenant_template")
+}
+
+model MaterialTransactionItem {
+  id              Int                 @id @default(autoincrement())
+  transactionId   Int                 @map("transaction_id")
+  rollId          Int?                @map("roll_id") // If linked to specific roll
+  productId       Int?                @map("product_id") // If linked to product
+  itemDescription String              @map("item_description") @db.VarChar(255)
+  fabricType      String?             @map("fabric_type") @db.VarChar(100)
+  color           String?             @db.VarChar(100)
+  quantity        Decimal             @db.Decimal(12, 3)
+  unit            String              @default("KG") @db.VarChar(20)
+  ratePerUnit     Decimal             @map("rate_per_unit") @db.Decimal(12, 2)
+  amount          Decimal             @db.Decimal(15, 2)
+  notes           String?             @db.Text
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  transaction     MaterialTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([rollId])
+  @@index([productId])
+  @@map("material_transaction_items")
+  @@schema("tenant_template")
+}
+
+model OutstandingBalance {
+  id                  Int       @id @default(autoincrement())
+  entityType          String    @map("entity_type") @db.VarChar(50) // 'customer', 'yarn_vendor', 'dyeing_vendor', 'general_supplier'
+  entityId            Int       @map("entity_id")
+  openingBalance      Decimal   @map("opening_balance") @db.Decimal(15, 2)
+  totalDebit          Decimal   @map("total_debit") @db.Decimal(15, 2)
+  totalCredit         Decimal   @map("total_credit") @db.Decimal(15, 2)
+  currentBalance      Decimal   @map("current_balance") @db.Decimal(15, 2)
+  lastTransactionAt   DateTime? @map("last_transaction_at")
+  isOverdue           Boolean   @default(false) @map("is_overdue")
+  overdueAmount       Decimal   @default(0) @map("overdue_amount") @db.Decimal(15, 2)
+  overdueDays         Int       @default(0) @map("overdue_days")
+  creditLimit         Decimal?  @map("credit_limit") @db.Decimal(15, 2)
+  availableCredit     Decimal?  @map("available_credit") @db.Decimal(15, 2)
+  pendingChequeAmount Decimal   @default(0) @map("pending_cheque_amount") @db.Decimal(15, 2)
+  pendingChequeCount  Int       @default(0) @map("pending_cheque_count")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@unique([entityType, entityId])
+  @@index([entityType])
+  @@index([isOverdue])
+  @@map("outstanding_balances")
+  @@schema("tenant_template")
+}
+
+// --- AGING SNAPSHOTS (Point-in-time aging analysis) ---
+
+model AgingSnapshot {
+  id                Int      @id @default(autoincrement())
+  entityType        String   @map("entity_type") @db.VarChar(50) // 'customer', 'yarn_vendor', 'dyeing_vendor', 'general_supplier'
+  entityId          Int      @map("entity_id")
+  snapshotDate      DateTime @map("snapshot_date") @db.Date
+
+  // Aging buckets
+  currentAmount     Decimal  @default(0) @map("current_amount") @db.Decimal(15, 2) // Not yet due
+  days1To30         Decimal  @default(0) @map("days_1_to_30") @db.Decimal(15, 2) // 1-30 days overdue
+  days31To60        Decimal  @default(0) @map("days_31_to_60") @db.Decimal(15, 2) // 31-60 days overdue
+  days61To90        Decimal  @default(0) @map("days_61_to_90") @db.Decimal(15, 2) // 61-90 days overdue
+  daysOver90        Decimal  @default(0) @map("days_over_90") @db.Decimal(15, 2) // 90+ days overdue
+
+  // Summary
+  totalOutstanding  Decimal  @map("total_outstanding") @db.Decimal(15, 2)
+  totalOverdue      Decimal  @default(0) @map("total_overdue") @db.Decimal(15, 2)
+  creditLimit       Decimal? @map("credit_limit") @db.Decimal(15, 2)
+  availableCredit   Decimal? @map("available_credit") @db.Decimal(15, 2)
+
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([snapshotDate])
+  @@map("aging_snapshots")
+  @@schema("tenant_template")
+}
+
+// --- PRODUCTS MODULE ---
+
+model Product {
+  id              Int              @id @default(autoincrement())
+  name            String           @db.VarChar(255)
+  articleNumber   String?          @unique @map("article_number") @db.VarChar(50)
+  qrCode          String           @unique @map("qr_code") @db.VarChar(50)
+
+  // Lookup Relations
+  departmentId    Int?             @map("department_id")
+  groupId         Int?             @map("group_id")
+  materialId      Int?             @map("material_id")
+  brandId         Int?             @map("brand_id")
+  colorId         Int?             @map("color_id")
+  fabricSizeId    Int?             @map("fabric_size_id")
+
+  // Additional Info
+  description     String?          @db.Text
+  unitPrice       Decimal?         @map("unit_price") @db.Decimal(12, 2)
+  currency        String           @default("PKR") @db.VarChar(3)
+
+  // Stock (updated by Stock In/Out transactions)
+  currentStock    Decimal          @default(0) @map("current_stock") @db.Decimal(12, 3)
+
+  // Images (stored as array of URLs)
+  images          String[]         @default([])
+
+  // Status
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  department      Department?      @relation(fields: [departmentId], references: [id])
+  group           Group?           @relation(fields: [groupId], references: [id])
+  material        Material?        @relation(fields: [materialId], references: [id])
+  brand           Brand?           @relation(fields: [brandId], references: [id])
+  color           Color?           @relation(fields: [colorId], references: [id])
+  fabricSize      FabricSize?      @relation(fields: [fabricSizeId], references: [id])
+  stockMovements  StockMovement[]
+
+  @@index([departmentId])
+  @@index([groupId])
+  @@index([materialId])
+  @@index([brandId])
+  @@index([colorId])
+  @@index([fabricSizeId])
+  @@map("products")
+  @@schema("tenant_template")
+}
+
+model StockMovement {
+  id              Int               @id @default(autoincrement())
+  productId       Int               @map("product_id")
+  type            StockMovementType
+  quantity        Decimal           @db.Decimal(12, 3)
+  referenceNumber String?           @map("reference_number") @db.VarChar(50)
+  sourceType      String?           @map("source_type") @db.VarChar(50)
+  destinationType String?           @map("destination_type") @db.VarChar(50)
+  notes           String?           @db.Text
+  createdBy       Int?              @map("created_by")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  product         Product           @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("stock_movements")
+  @@schema("tenant_template")
+}
+
+enum StockMovementType {
+  IN
+  OUT
+
+  @@schema("tenant_template")
+}
+
+// --- SETTINGS ---
+
+model TenantSettings {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @db.VarChar(100)
+  value       Json
+  category    String   @db.VarChar(50)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("tenant_settings")
+  @@schema("tenant_template")
+}
+
+// --- DEPARTMENTS ---
+
+model Department {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique @db.VarChar(50)  // Auto-generated: DEPT-001, DEPT-002, etc.
+  name           String    @db.VarChar(255)
+  description    String?   @db.Text
+  parentId       Int?      @map("parent_id")
+
+  // Personnel Information
+  managerName    String?   @map("manager_name") @db.VarChar(255)
+  contactPerson  String?   @map("contact_person") @db.VarChar(255)
+  employeeCount  Int?      @map("employee_count") @default(0)
+
+  // Keep for future User linkage
+  managerId      Int?      @map("manager_id")
+
+  notes          String?   @db.Text
+  isActive       Boolean   @default(true) @map("is_active")
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdBy      Int?      @map("created_by")
+  updatedBy      Int?      @map("updated_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  parent         Department?  @relation("DepartmentHierarchy", fields: [parentId], references: [id])
+  children       Department[] @relation("DepartmentHierarchy")
+  groups         Group[]
+  fabrics        Fabric[]
+  products       Product[]
+
+  @@index([parentId])
+  @@index([isActive])
+  @@map("departments")
+  @@schema("tenant_template")
+}
+
+// --- PRODUCT GROUPS ---
+
+model ProductGroup {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @db.VarChar(50)
+  name        String    @db.VarChar(255)
+  description String?   @db.Text
+  parentId    Int?      @map("parent_id")
+  notes       String?   @db.Text
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   Int?      @map("created_by")
+  updatedBy   Int?      @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  parent      ProductGroup?  @relation("ProductGroupHierarchy", fields: [parentId], references: [id])
+  children    ProductGroup[] @relation("ProductGroupHierarchy")
+
+  @@index([parentId])
+  @@index([isActive])
+  @@map("product_groups")
+  @@schema("tenant_template")
+}
+
+// --- BRANDS ---
+
+model Brand {
+  id                 Int       @id @default(autoincrement())
+  code               String    @unique @db.VarChar(50)  // Auto-generated: BRD-001, BRD-002, etc.
+  name               String    @db.VarChar(255)          // REQUIRED - only required field
+  description        String?   @db.Text
+  logoUrl            String?   @map("logo_url") @db.VarChar(500)
+  website            String?   @db.VarChar(255)
+
+  // Contact Information
+  phone              String?   @db.VarChar(50)
+  email              String?   @db.VarChar(255)
+  fax                String?   @db.VarChar(50)
+  contactPerson      String?   @map("contact_person") @db.VarChar(255)
+
+  // Address Fields (International Standard)
+  addressLine1       String?   @map("address_line_1") @db.VarChar(255)
+  addressLine2       String?   @map("address_line_2") @db.VarChar(255)
+  city               String?   @db.VarChar(100)
+  stateProvince      String?   @map("state_province") @db.VarChar(100)
+  postalCode         String?   @map("postal_code") @db.VarChar(20)
+  country            String?   @db.VarChar(100)
+
+  // Business Registration (International Standard)
+  taxId              String?   @map("tax_id") @db.VarChar(50)
+  registrationNumber String?   @map("registration_number") @db.VarChar(50)
+
+  notes              String?   @db.Text
+  isActive           Boolean   @default(true) @map("is_active")
+  sortOrder          Int       @default(0) @map("sort_order")
+  createdBy          Int?      @map("created_by")
+  updatedBy          Int?      @map("updated_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  fabrics            Fabric[]
+  products           Product[]
+
+  @@index([isActive])
+  @@map("brands")
+  @@schema("tenant_template")
+}
+
+// --- UNITS OF MEASUREMENT (International Standards) ---
+
+model Unit {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique @db.VarChar(20)
+  name          String    @db.VarChar(100)
+  symbol        String    @db.VarChar(20)
+  category      UnitCategory
+  description   String?   @db.Text
+
+  // Conversion to base unit within category
+  baseUnit      String?   @map("base_unit") @db.VarChar(20)
+  conversionFactor Decimal? @map("conversion_factor") @db.Decimal(20, 10)
+
+  // International standard reference
+  siUnit        Boolean   @default(false) @map("si_unit")
+  isoCode       String?   @map("iso_code") @db.VarChar(20)
+
+  notes         String?   @db.Text
+  isActive      Boolean   @default(true) @map("is_active")
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     Int?      @map("created_by")
+  updatedBy     Int?      @map("updated_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relations for Stock Management
+  stockItemsPrimary    StockItem[]        @relation("PrimaryUnit")
+  stockItemsSecondary  StockItem[]        @relation("SecondaryUnit")
+  stockTransactions    StockTransaction[]
+
+  @@index([category])
+  @@index([isActive])
+  @@map("units")
+  @@schema("tenant_template")
+}
+
+enum UnitCategory {
+  LENGTH
+  MASS
+  VOLUME
+  AREA
+  COUNT
+  TIME
+  TEMPERATURE
+  OTHER
+
+  @@schema("tenant_template")
+}
+
+// Fiber Origin Types (following ISO 2076 / ISO 6938 standards)
+// FiberOrigin enum removed - Material now stores Yarn Specs instead of fiber types
+
+// --- GENERAL SETTINGS MASTER DATA ---
+
+// Group Master (groups belong to a department)
+model Group {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(50)  // Auto-generated: GRP-001, GRP-002, etc.
+  name         String    @db.VarChar(255)
+
+  // Department relation (REQUIRED)
+  departmentId Int       @map("department_id")
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  description  String?   @db.Text
+  notes        String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdBy    Int?      @map("created_by")
+  updatedBy    Int?      @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  fabrics        Fabric[]
+  products       Product[]
+
+  // Unique group name within department
+  @@unique([departmentId, name], name: "unique_group_name_per_department")
+  @@index([departmentId])
+  @@index([isActive])
+  @@map("groups")
+  @@schema("tenant_template")
+}
+
+// Material Master (Fabric Materials / Fiber Types following ISO 2076 & ISO 6938)
+// Examples: Cotton (CO), Polyester (PES), Wool (WO), Elastane (EL)
+// Material = Yarn Specification (Raw Material)
+// Examples: "70/24/1 RW", "150/48/2 FD", "75/36/1 SD"
+// Format: Count/Filaments/Ply + Type (RW=Raw White, FD=Full Dull, SD=Semi Dull, BR=Bright)
+model Material {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @db.VarChar(50)   // Auto-generated: MAT-001, MAT-002
+  name        String    @db.VarChar(255)          // Yarn spec: "70/24/1 RW", "150/48/2 FD"
+
+  // Quality grading
+  grade       String?   @db.VarChar(20)           // Quality grade: AAA, AA, A, B, C
+  gradeNumber String?   @map("grade_number") @db.VarChar(50)  // Internal grade code/number
+
+  // Optional details
+  description String?   @db.Text                  // Additional description
+  notes       String?   @db.Text                  // Internal notes
+
+  // Status & timestamps
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   Int?      @map("created_by")
+  updatedBy   Int?      @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  fabrics     Fabric[]
+  products    Product[]
+
+  @@index([isActive])
+  @@index([grade])
+  @@map("materials")
+  @@schema("tenant_template")
+}
+
+// Fabric Master (with QR Code support for hardware scanners)
+model Fabric {
+  id            Int       @id @default(autoincrement())
+  code          String    @unique @map("fabric_code") @db.VarChar(50) // Auto-generated: FAB000001, FAB000002
+  name          String    @db.VarChar(255)
+  qrPayload     String?   @unique @map("qr_payload") @db.VarChar(100) // Format: FABRIC|FAB000001
+  qrGeneratedAt DateTime? @map("qr_generated_at")
+
+  // Required Relations
+  departmentId  Int       @map("department_id")
+  department    Department @relation(fields: [departmentId], references: [id])
+  groupId       Int       @map("group_id")
+  group         Group     @relation(fields: [groupId], references: [id])
+
+  // Optional Relations
+  materialId    Int?      @map("material_id")
+  material      Material? @relation(fields: [materialId], references: [id])
+  brandId       Int?      @map("brand_id")
+  brand         Brand?    @relation(fields: [brandId], references: [id])
+  colorId       Int?      @map("color_id")
+  color         Color?    @relation(fields: [colorId], references: [id])
+  machineId     Int?      @map("machine_id")
+  machine       Machine?  @relation(fields: [machineId], references: [id])
+
+  // Fabric Type & Composition (master data relations)
+  fabricTypeId        Int?              @map("fabric_type_id")
+  fabricType          FabricType?       @relation(fields: [fabricTypeId], references: [id])
+  fabricCompositionId Int?              @map("fabric_composition_id")
+  fabricComposition   FabricComposition? @relation(fields: [fabricCompositionId], references: [id])
+
+  // Fabric Properties (keeping legacy string fields for backward compatibility)
+  type          String?   @db.VarChar(100) // DEPRECATED: Use fabricTypeId instead
+  composition   String?   @db.VarChar(255) // DEPRECATED: Use fabricCompositionId instead
+  gsm           Decimal?  @db.Decimal(6, 2) // Grams per square meter
+  width         Decimal?  @db.Decimal(6, 2) // Width value
+  widthUnit     String?   @default("inch") @map("width_unit") @db.VarChar(10) // inch, cm
+  isTube        Boolean   @default(false) @map("is_tube") // Tube fabric (Yes/No)
+
+  description   String?   @db.Text
+  notes         String?   @db.Text
+  isActive      Boolean   @default(true) @map("is_active")
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdBy     Int?      @map("created_by")
+  updatedBy     Int?      @map("updated_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@index([type])
+  @@index([qrPayload])
+  @@index([departmentId])
+  @@index([groupId])
+  @@index([materialId])
+  @@index([brandId])
+  @@index([colorId])
+  @@index([machineId])
+  @@index([fabricTypeId])
+  @@index([fabricCompositionId])
+  @@map("fabrics")
+  @@schema("tenant_template")
+}
+
+// Fabric Type Master (Single Jersey, Double Jersey, Rib, etc.)
+model FabricType {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(50)     // Auto-generated: FT-001, FT-002
+  name         String    @db.VarChar(100)            // e.g., "Single Jersey", "Double Jersey"
+  description  String?   @db.Text
+  notes        String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdBy    Int?      @map("created_by")
+  updatedBy    Int?      @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  fabrics      Fabric[]
+
+  @@index([isActive])
+  @@map("fabric_types")
+  @@schema("tenant_template")
+}
+
+// Fabric Composition Master (100% Cotton, 50/50 Cotton/Polyester, etc.)
+model FabricComposition {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(50)     // Auto-generated: FC-001, FC-002
+  name         String    @db.VarChar(255)            // e.g., "100% Cotton", "50/50 Cotton/Polyester"
+  description  String?   @db.Text
+  notes        String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdBy    Int?      @map("created_by")
+  updatedBy    Int?      @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  fabrics      Fabric[]
+
+  @@index([isActive])
+  @@map("fabric_compositions")
+  @@schema("tenant_template")
+}
+
+// Color Master
+model Color {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(50)
+  name         String    @db.VarChar(255)
+  hexCode      String?   @map("hex_code") @db.VarChar(7) // e.g., #FF5733
+  pantoneCode  String?   @map("pantone_code") @db.VarChar(50)
+  description  String?   @db.Text
+  notes        String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdBy    Int?      @map("created_by")
+  updatedBy    Int?      @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  fabrics        Fabric[]
+  products       Product[]
+
+  @@index([isActive])
+  @@map("colors")
+  @@schema("tenant_template")
+}
+
+// Grade Master (universal quality grades for products and materials)
+model Grade {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @db.VarChar(50)
+  name        String    @db.VarChar(255)
+  level       Int       @default(0) // Priority ranking (1 = best, higher = lower quality)
+  description String?   @db.Text
+  notes       String?   @db.Text
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   Int?      @map("created_by")
+  updatedBy   Int?      @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+
+  @@index([isActive])
+  @@index([level])
+  @@map("grades")
+  @@schema("tenant_template")
+}
+
+// --- YARN LEDGER (Inventory Tracking with Running Balance) ---
+
+enum YarnLedgerEntryType {
+  OPENING_BALANCE
+  INWARD           // Purchase/Receipt from vendor
+  OUTWARD          // Issue to production
+  ADJUSTMENT       // Manual adjustment
+  RETURN           // Return from production
+
+  @@schema("tenant_template")
+}
+
+model YarnLedger {
+  id                Int                  @id @default(autoincrement())
+  yarnTypeId        Int                  @map("yarn_type_id")
+  entryDate         DateTime             @map("entry_date") @db.Date
+  entryType         YarnLedgerEntryType  @map("entry_type")
+
+  // Quantity tracking (KG)
+  quantityIn        Decimal              @default(0) @map("quantity_in") @db.Decimal(12, 3)
+  quantityOut       Decimal              @default(0) @map("quantity_out") @db.Decimal(12, 3)
+  runningBalance    Decimal              @map("running_balance") @db.Decimal(12, 3)
+
+  // Pricing
+  pricePerKg        Decimal?             @map("price_per_kg") @db.Decimal(12, 2)
+  totalValue        Decimal?             @map("total_value") @db.Decimal(15, 2)
+
+  // Reference to source document
+  referenceType     String?              @map("reference_type") @db.VarChar(50)  // 'yarn_box', 'outward', 'adjustment'
+  referenceId       Int?                 @map("reference_id")
+  referenceNumber   String?              @map("reference_number") @db.VarChar(100)
+
+  // Vendor & Invoice (for inward entries)
+  vendorId          Int?                 @map("vendor_id")
+  invoiceNumber     String?              @map("invoice_number") @db.VarChar(100)
+
+  // Details
+  description       String?              @db.Text
+  notes             String?              @db.Text
+  paymentStatus     PaymentStatus?       @map("payment_status")
+
+  // Audit
+  createdBy         Int?                 @map("created_by")
+  createdAt         DateTime             @default(now()) @map("created_at")
+
+  // Relations
+  yarnType          YarnType             @relation(fields: [yarnTypeId], references: [id])
+  vendor            YarnVendor?          @relation(fields: [vendorId], references: [id])
+
+  @@index([yarnTypeId])
+  @@index([entryDate])
+  @@index([entryType])
+  @@index([vendorId])
+  @@index([referenceType, referenceId])
+  @@map("yarn_ledger")
+  @@schema("tenant_template")
+}
+
+// --- YARN OUTWARD (Issue to Machines) ---
+
+enum YarnOutwardStatus {
+  ISSUED
+  IN_USE
+  COMPLETED
+  RETURNED
+
+  @@schema("tenant_template")
+}
+
+model YarnOutward {
+  id               Int               @id @default(autoincrement())
+  outwardNumber    String            @unique @map("outward_number") @db.VarChar(50)
+
+  // What was issued
+  yarnTypeId       Int               @map("yarn_type_id")
+  boxId            Int?              @map("box_id")
+  quantityIssued   Decimal           @map("quantity_issued") @db.Decimal(12, 3)
+
+  // Where it went
+  machineId        Int               @map("machine_id")
+
+  // Who and when
+  issuedAt         DateTime          @map("issued_at")
+  issuedBy         Int?              @map("issued_by")
+  collectedBy      String            @map("collected_by") @db.VarChar(255)
+
+  // Tracking
+  status           YarnOutwardStatus @default(ISSUED)
+  quantityReturned Decimal           @default(0) @map("quantity_returned") @db.Decimal(12, 3)
+  quantityUsed     Decimal           @default(0) @map("quantity_used") @db.Decimal(12, 3)
+
+  // Context
+  shiftId          Int?              @map("shift_id")
+  purpose          String            @default("PRODUCTION") @db.VarChar(50)
+  notes            String?           @db.Text
+
+  // Audit
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  yarnType         YarnType          @relation(fields: [yarnTypeId], references: [id])
+  box              YarnBox?          @relation(fields: [boxId], references: [id])
+  machine          Machine           @relation(fields: [machineId], references: [id])
+  shift            Shift?            @relation(fields: [shiftId], references: [id])
+
+  @@index([yarnTypeId])
+  @@index([machineId])
+  @@index([issuedAt])
+  @@index([status])
+  @@map("yarn_outwards")
+  @@schema("tenant_template")
+}
+
+// Knitting Machine Size Master (industry-specific)
+model KnittingMachineSize {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(50)
+  name         String    @db.VarChar(255)
+  gauge        Int?                          // e.g., 18, 20, 22, 24
+  diameter     Int?                          // in inches
+  needleCount  Int?      @map("needle_count")
+  machineType  String?   @map("machine_type") @db.VarChar(100) // Circular, Flat, etc.
+  description  String?   @db.Text
+  notes        String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  sortOrder    Int       @default(0) @map("sort_order")
+  createdBy    Int?      @map("created_by")
+  updatedBy    Int?      @map("updated_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@index([gauge])
+  @@index([machineType])
+  @@map("knitting_machine_sizes")
+  @@schema("tenant_template")
+}
+
+// --- FABRIC SIZE MASTER ---
+
+enum WidthUnit {
+  INCHES
+  MM
+
+  @@schema("tenant_template")
+}
+
+model FabricSize {
+  id           Int         @id @default(autoincrement())
+  code         String      @unique @db.VarChar(50)     // Auto-generated: FS-001
+  widthValue   Decimal     @map("width_value") @db.Decimal(10, 2)  // e.g., 48, 60, 1600
+  unit         WidthUnit                                // INCHES or MM
+  displayName  String      @map("display_name") @db.VarChar(100)   // e.g., "48 in" or "1600 mm"
+  formId       Int?        @map("form_id")              // Reference to FabricForm (Open/Tube)
+  form         FabricForm? @relation(fields: [formId], references: [id])
+  description  String?     @db.Text
+  notes        String?     @db.Text
+  isActive     Boolean     @default(true) @map("is_active")
+  sortOrder    Int         @default(0) @map("sort_order")
+  createdBy    Int?        @map("created_by")
+  updatedBy    Int?        @map("updated_by")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  products     Product[]
+
+  @@index([isActive])
+  @@index([unit])
+  @@index([formId])
+  @@map("fabric_sizes")
+  @@schema("tenant_template")
+}
+
+// --- FABRIC FORM MASTER (Tube/Open) ---
+
+model FabricForm {
+  id           Int          @id @default(autoincrement())
+  code         String       @unique @db.VarChar(50)     // Auto-generated: FF-001
+  name         String       @db.VarChar(100)            // e.g., "Open", "Tube (Closed)"
+  description  String?      @db.Text
+  notes        String?      @db.Text
+  isActive     Boolean      @default(true) @map("is_active")
+  sortOrder    Int          @default(0) @map("sort_order")
+  createdBy    Int?         @map("created_by")
+  updatedBy    Int?         @map("updated_by")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  fabricSizes  FabricSize[]
+
+  @@index([isActive])
+  @@map("fabric_forms")
+  @@schema("tenant_template")
+}
+
+// --- WHATSAPP INTEGRATION ---
+
+model WhatsAppContact {
+  id            Int               @id @default(autoincrement())
+  phoneNumber   String            @unique @map("phone_number") @db.VarChar(20)
+  waId          String?           @map("wa_id") @db.VarChar(50)
+  name          String?           @db.VarChar(255)
+  isVerified    Boolean           @default(false) @map("is_verified")
+  optedIn       Boolean           @default(true) @map("opted_in")
+  linkedTo      String?           @map("linked_to") @db.VarChar(50) // 'customer', 'vendor', 'owner'
+  linkedId      Int?              @map("linked_id")
+  language      String            @default("en") @db.VarChar(5) // 'en', 'ur'
+  lastMessageAt DateTime?         @map("last_message_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  messages      WhatsAppMessage[]
+
+  @@index([linkedTo, linkedId])
+  @@index([isVerified])
+  @@map("whatsapp_contacts")
+  @@schema("tenant_template")
+}
+
+model WhatsAppMessage {
+  id            Int             @id @default(autoincrement())
+  contactId     Int             @map("contact_id")
+  direction     MessageDirection
+  messageType   String          @map("message_type") @db.VarChar(20) // 'text', 'template', 'interactive', 'image'
+  content       Json            @db.JsonB
+  waMessageId   String?         @unique @map("wa_message_id") @db.VarChar(100)
+  status        MessageStatus   @default(PENDING)
+  templateName  String?         @map("template_name") @db.VarChar(100)
+  errorMessage  String?         @map("error_message") @db.Text
+  sentAt        DateTime?       @map("sent_at")
+  deliveredAt   DateTime?       @map("delivered_at")
+  readAt        DateTime?       @map("read_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  contact       WhatsAppContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("whatsapp_messages")
+  @@schema("tenant_template")
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+
+  @@schema("tenant_template")
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+
+  @@schema("tenant_template")
+}
+
+model WhatsAppTemplate {
+  id            Int       @id @default(autoincrement())
+  name          String    @unique @db.VarChar(100)
+  language      String    @default("en") @db.VarChar(5)
+  category      String    @db.VarChar(50) // 'order_update', 'daily_report', 'payment_reminder', 'query_response'
+  description   String?   @db.Text
+  components    Json      @db.JsonB // Template structure for Meta API
+  variables     String[]  @default([]) // List of variable names used in template
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([isActive])
+  @@map("whatsapp_templates")
+  @@schema("tenant_template")
+}
+
+model WhatsAppSettings {
+  id                    Int       @id @default(autoincrement())
+  isEnabled             Boolean   @default(false) @map("is_enabled")
+  phoneNumberId         String?   @map("phone_number_id") @db.VarChar(50)
+  businessAccountId     String?   @map("business_account_id") @db.VarChar(50)
+  dailyReportEnabled    Boolean   @default(true) @map("daily_report_enabled")
+  dailyReportTime       String    @default("08:00") @map("daily_report_time") @db.VarChar(5) // HH:mm format
+  dailyReportRecipients String[]  @default([]) @map("daily_report_recipients") // Phone numbers
+  orderNotifications    Boolean   @default(true) @map("order_notifications")
+  paymentReminders      Boolean   @default(true) @map("payment_reminders")
+  queryBotEnabled       Boolean   @default(true) @map("query_bot_enabled")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("whatsapp_settings")
+  @@schema("tenant_template")
+}
+
+// ===========================================
+// NEEDLE MANAGEMENT MODULE
+// ===========================================
+
+model NeedleType {
+  id                 Int       @id @default(autoincrement())
+  code               String    @unique @db.VarChar(20) // NL-0001
+  name               String    @db.VarChar(100) // "Latch Needle 18G"
+  needleKind         String    @map("needle_kind") @db.VarChar(50) // LATCH, COMPOUND, BEARDED
+  gauge              Int // 18, 20, 22, 24, etc.
+  length             Decimal?  @db.Decimal(5, 2) // mm
+  material           String    @db.VarChar(50) // Steel, Stainless Steel
+  brand              String?   @db.VarChar(100)
+  supplierCode       String?   @map("supplier_code") @db.VarChar(50) // Supplier's item code
+
+  // Pricing
+  costPerNeedle      Decimal?  @map("cost_per_needle") @db.Decimal(10, 2)
+  currency           String    @default("PKR") @db.VarChar(10)
+
+  // Inventory thresholds
+  minStockLevel      Int       @default(100) @map("min_stock_level")
+  reorderPoint       Int       @default(200) @map("reorder_point")
+
+  // Compatibility
+  compatibleMachines String[]  @default([]) @map("compatible_machines") // ["CIRCULAR_KNITTING"]
+
+  // Link to unified stock item
+  stockItemId        Int?      @unique @map("stock_item_id")
+
+  notes              String?   @db.Text
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  stockBatches       NeedleStockBatch[]
+  machineAllocations NeedleMachineAllocation[]
+  damageRecords      NeedleDamage[]
+
+  @@index([code])
+  @@index([gauge])
+  @@map("needle_types")
+  @@schema("tenant_template")
+}
+
+model NeedleStockBatch {
+  id                Int       @id @default(autoincrement())
+  batchNumber       String    @unique @map("batch_number") @db.VarChar(30) // NB-2024-0001
+  needleTypeId      Int       @map("needle_type_id")
+
+  // Quantities
+  receivedQuantity  Int       @map("received_quantity") // Total received
+  currentQuantity   Int       @map("current_quantity") // Available in stock
+  allocatedQuantity Int       @default(0) @map("allocated_quantity") // Assigned to machines
+  damagedQuantity   Int       @default(0) @map("damaged_quantity") // Broken/defective
+
+  // Receipt info
+  receivedDate      DateTime  @default(now()) @map("received_date")
+  invoiceNumber     String?   @map("invoice_number") @db.VarChar(50)
+  invoiceDate       DateTime? @map("invoice_date")
+  unitCost          Decimal?  @map("unit_cost") @db.Decimal(10, 2)
+  totalCost         Decimal?  @map("total_cost") @db.Decimal(12, 2)
+
+  // Supplier info
+  supplierId        Int?      @map("supplier_id")
+  supplierName      String?   @map("supplier_name") @db.VarChar(200)
+
+  // Collection tracking
+  collectedBy       Int?      @map("collected_by") // TenantUser ID
+  collectorName     String?   @map("collector_name") @db.VarChar(100) // Denormalized name
+  collectionDate    DateTime? @map("collection_date")
+
+  lotNumber         String?   @map("lot_number") @db.VarChar(50)
+  notes             String?   @db.Text
+
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  needleType        NeedleType @relation(fields: [needleTypeId], references: [id])
+  allocations       NeedleMachineAllocation[]
+  damages           NeedleDamage[]
+  movements         NeedleStockMovement[]
+
+  @@index([batchNumber])
+  @@index([needleTypeId])
+  @@index([receivedDate])
+  @@map("needle_stock_batches")
+  @@schema("tenant_template")
+}
+
+model NeedleStockMovement {
+  id                Int       @id @default(autoincrement())
+  batchId           Int       @map("batch_id")
+  movementType      String    @map("movement_type") @db.VarChar(20) // IN, OUT, ADJUST, DAMAGE, RETURN
+  quantity          Int // Positive for IN, negative for OUT
+
+  // Reference
+  referenceType     String?   @map("reference_type") @db.VarChar(50) // PURCHASE, ALLOCATION, DAMAGE, ADJUSTMENT
+  referenceId       Int?      @map("reference_id") // Related record ID
+
+  // Actor
+  performedBy       Int       @map("performed_by") // TenantUser ID
+  performerName     String    @map("performer_name") @db.VarChar(100) // Denormalized
+
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  batch             NeedleStockBatch @relation(fields: [batchId], references: [id])
+
+  @@index([batchId])
+  @@index([movementType])
+  @@index([createdAt])
+  @@map("needle_stock_movements")
+  @@schema("tenant_template")
+}
+
+model NeedleMachineAllocation {
+  id                Int       @id @default(autoincrement())
+  machineId         Int       @map("machine_id")
+  needleTypeId      Int       @map("needle_type_id")
+  batchId           Int?      @map("batch_id") // Source batch
+
+  // Quantities
+  installedQuantity Int       @map("installed_quantity") // Needles installed
+  position          String?   @db.VarChar(50) // Cylinder, Dial, Feeder 1-4
+
+  // Installation info
+  installedAt       DateTime  @default(now()) @map("installed_at")
+  installedBy       Int       @map("installed_by") // TenantUser ID
+  installerName     String    @map("installer_name") @db.VarChar(100)
+
+  // Removal info (null if still installed)
+  removedAt         DateTime? @map("removed_at")
+  removedBy         Int?      @map("removed_by")
+  removerName       String?   @map("remover_name") @db.VarChar(100)
+  removalReason     String?   @map("removal_reason") @db.VarChar(100) // REPLACEMENT, MAINTENANCE, DAMAGE
+
+  // Status
+  status            String    @default("INSTALLED") @db.VarChar(20) // INSTALLED, REMOVED
+
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  machine           Machine   @relation(fields: [machineId], references: [id])
+  needleType        NeedleType @relation(fields: [needleTypeId], references: [id])
+  batch             NeedleStockBatch? @relation(fields: [batchId], references: [id])
+  damages           NeedleDamage[]
+
+  @@index([machineId])
+  @@index([needleTypeId])
+  @@index([status])
+  @@map("needle_machine_allocations")
+  @@schema("tenant_template")
+}
+
+model NeedleDamage {
+  id                Int       @id @default(autoincrement())
+  needleTypeId      Int       @map("needle_type_id")
+  batchId           Int?      @map("batch_id")
+  allocationId      Int?      @map("allocation_id") // If damaged while installed
+  machineId         Int?      @map("machine_id") // Machine where damage occurred
+
+  // Damage info
+  damageDate        DateTime  @default(now()) @map("damage_date")
+  damageType        String    @map("damage_type") @db.VarChar(50) // BROKEN, BENT, WORN, HOOK_DAMAGE, LATCH_DAMAGE
+  damagedQuantity   Int       @map("damaged_quantity")
+
+  // Cause
+  cause             String?   @db.VarChar(100) // YARN_KNOT, METAL_FATIGUE, OPERATOR_ERROR, UNKNOWN
+  description       String?   @db.Text
+
+  // Reporter
+  reportedBy        Int       @map("reported_by") // TenantUser ID
+  reporterName      String    @map("reporter_name") @db.VarChar(100)
+
+  // Resolution
+  resolutionStatus  String    @default("PENDING") @map("resolution_status") @db.VarChar(20) // PENDING, REPLACED, WRITTEN_OFF
+  replacedQuantity  Int?      @map("replaced_quantity")
+  replacedAt        DateTime? @map("replaced_at")
+  replacedBy        Int?      @map("replaced_by")
+  replacerName      String?   @map("replacer_name") @db.VarChar(100)
+
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  needleType        NeedleType @relation(fields: [needleTypeId], references: [id])
+  batch             NeedleStockBatch? @relation(fields: [batchId], references: [id])
+  allocation        NeedleMachineAllocation? @relation(fields: [allocationId], references: [id])
+
+  @@index([needleTypeId])
+  @@index([machineId])
+  @@index([damageDate])
+  @@index([damageType])
+  @@map("needle_damages")
+  @@schema("tenant_template")
+}
+
+// ===========================================
+// UNIFIED STOCK MANAGEMENT MODULE
+// ===========================================
+
+model Warehouse {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique @db.VarChar(50)
+  name            String           @db.VarChar(255)
+  description     String?          @db.Text
+
+  // Location details
+  address         String?          @db.Text
+  city            String?          @db.VarChar(100)
+
+  // Hierarchy (for sub-locations/bins)
+  parentId        Int?             @map("parent_id")
+  locationType    LocationType     @default(WAREHOUSE) @map("location_type")
+
+  // Configuration
+  isDefault       Boolean          @default(false) @map("is_default")
+  allowNegative   Boolean          @default(false) @map("allow_negative")
+
+  // Status
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  parent            Warehouse?       @relation("WarehouseHierarchy", fields: [parentId], references: [id])
+  children          Warehouse[]      @relation("WarehouseHierarchy")
+  stockLevels       StockLevel[]
+  transactionsFrom  StockTransaction[] @relation("SourceWarehouse")
+  transactionsTo    StockTransaction[] @relation("DestinationWarehouse")
+
+  @@index([parentId])
+  @@index([locationType])
+  @@map("warehouses")
+  @@schema("tenant_template")
+}
+
+enum LocationType {
+  WAREHOUSE      // Main warehouse
+  ZONE           // Zone within warehouse
+  RACK           // Rack/shelf
+  BIN            // Specific bin/location
+  PRODUCTION     // Production floor
+  QUALITY        // Quality hold area
+  QUARANTINE     // Quarantine area
+
+  @@schema("tenant_template")
+}
+
+model StockCategory {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique @db.VarChar(50)
+  name            String           @db.VarChar(255)
+  description     String?          @db.Text
+  parentId        Int?             @map("parent_id")
+
+  // Default settings for items in this category
+  defaultUnitId   Int?             @map("default_unit_id")
+  trackBatches    Boolean          @default(false) @map("track_batches")
+
+  // Status
+  isActive        Boolean          @default(true) @map("is_active")
+  sortOrder       Int              @default(0) @map("sort_order")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  parent          StockCategory?   @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        StockCategory[]  @relation("CategoryHierarchy")
+  items           StockItem[]
+
+  @@index([parentId])
+  @@map("stock_categories")
+  @@schema("tenant_template")
+}
+
+model StockItem {
+  id                  Int                @id @default(autoincrement())
+  code                String             @unique @db.VarChar(50)
+  name                String             @db.VarChar(255)
+  description         String?            @db.Text
+
+  // Classification
+  itemType            StockItemType      @default(GENERAL) @map("item_type")
+  categoryId          Int?               @map("category_id")
+  productGroupId      Int?               @map("product_group_id")
+  brandId             Int?               @map("brand_id")
+
+  // Units of Measurement
+  primaryUnitId       Int                @map("primary_unit_id")
+  secondaryUnitId     Int?               @map("secondary_unit_id")
+  conversionFactor    Decimal?           @map("conversion_factor") @db.Decimal(20, 10)
+
+  // Tracking options
+  trackBatches        Boolean            @default(false) @map("track_batches")
+  trackSerials        Boolean            @default(false) @map("track_serials")
+  trackExpiry         Boolean            @default(false) @map("track_expiry")
+
+  // Stock configuration
+  minStockLevel       Decimal?           @map("min_stock_level") @db.Decimal(12, 3)
+  reorderPoint        Decimal?           @map("reorder_point") @db.Decimal(12, 3)
+  reorderQuantity     Decimal?           @map("reorder_quantity") @db.Decimal(12, 3)
+  maxStockLevel       Decimal?           @map("max_stock_level") @db.Decimal(12, 3)
+
+  // Valuation
+  valuationMethod     ValuationMethod    @default(WEIGHTED_AVERAGE) @map("valuation_method")
+  standardCost        Decimal?           @map("standard_cost") @db.Decimal(15, 4)
+  lastPurchaseCost    Decimal?           @map("last_purchase_cost") @db.Decimal(15, 4)
+  averageCost         Decimal?           @map("average_cost") @db.Decimal(15, 4)
+  currency            String             @default("PKR") @db.VarChar(3)
+
+  // Industry-specific attributes (JSON for flexibility)
+  attributes          Json?              @db.JsonB
+
+  // Images and documents
+  images              String[]           @default([])
+
+  // Module association (for industry-specific items)
+  moduleCode          String?            @map("module_code") @db.VarChar(50)  // 'YARN', 'NEEDLE', etc.
+
+  // Status
+  isActive            Boolean            @default(true) @map("is_active")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  category            StockCategory?     @relation(fields: [categoryId], references: [id])
+  primaryUnit         Unit               @relation("PrimaryUnit", fields: [primaryUnitId], references: [id])
+  secondaryUnit       Unit?              @relation("SecondaryUnit", fields: [secondaryUnitId], references: [id])
+  stockLevels         StockLevel[]
+  transactions        StockTransaction[]
+  batches             StockBatch[]
+  alerts              StockAlert[]
+
+  @@index([code])
+  @@index([itemType])
+  @@index([categoryId])
+  @@index([moduleCode])
+  @@map("stock_items")
+  @@schema("tenant_template")
+}
+
+enum StockItemType {
+  GENERAL         // Generic products
+  RAW_MATERIAL    // Materials for production
+  FINISHED_GOODS  // Completed products
+  CONSUMABLE      // Items consumed in production
+  SPARE_PART      // Machine parts
+  PACKAGING       // Packaging materials
+
+  @@schema("tenant_template")
+}
+
+enum ValuationMethod {
+  FIFO              // First In First Out
+  LIFO              // Last In First Out
+  WEIGHTED_AVERAGE  // Weighted Average Cost
+  STANDARD_COST     // Fixed standard cost
+
+  @@schema("tenant_template")
+}
+
+model StockLevel {
+  id               Int          @id @default(autoincrement())
+  itemId           Int          @map("item_id")
+  warehouseId      Int          @map("warehouse_id")
+
+  // Quantities
+  quantityOnHand   Decimal      @default(0) @map("quantity_on_hand") @db.Decimal(12, 3)
+  quantityReserved Decimal      @default(0) @map("quantity_reserved") @db.Decimal(12, 3)
+  quantityAvailable Decimal     @default(0) @map("quantity_available") @db.Decimal(12, 3)
+  quantityOnOrder  Decimal      @default(0) @map("quantity_on_order") @db.Decimal(12, 3)
+
+  // Valuation
+  totalValue       Decimal      @default(0) @map("total_value") @db.Decimal(15, 2)
+  averageCost      Decimal?     @map("average_cost") @db.Decimal(15, 4)
+
+  // Timestamps
+  lastMovementAt   DateTime?    @map("last_movement_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  item             StockItem    @relation(fields: [itemId], references: [id])
+  warehouse        Warehouse    @relation(fields: [warehouseId], references: [id])
+
+  @@unique([itemId, warehouseId])
+  @@index([itemId])
+  @@index([warehouseId])
+  @@map("stock_levels")
+  @@schema("tenant_template")
+}
+
+model StockBatch {
+  id                Int               @id @default(autoincrement())
+  batchNumber       String            @unique @map("batch_number") @db.VarChar(100)
+  itemId            Int               @map("item_id")
+
+  // Batch details
+  manufacturingDate DateTime?         @map("manufacturing_date") @db.Date
+  expiryDate        DateTime?         @map("expiry_date") @db.Date
+  lotNumber         String?           @map("lot_number") @db.VarChar(100)
+
+  // Quantities
+  initialQuantity   Decimal           @map("initial_quantity") @db.Decimal(12, 3)
+  currentQuantity   Decimal           @map("current_quantity") @db.Decimal(12, 3)
+
+  // Cost
+  unitCost          Decimal?          @map("unit_cost") @db.Decimal(15, 4)
+  totalCost         Decimal?          @map("total_cost") @db.Decimal(15, 2)
+
+  // Source
+  supplierId        Int?              @map("supplier_id")
+  purchaseOrderRef  String?           @map("purchase_order_ref") @db.VarChar(100)
+
+  // Custom attributes
+  attributes        Json?             @db.JsonB
+  notes             String?           @db.Text
+
+  // Status
+  status            BatchStatus       @default(ACTIVE)
+  isActive          Boolean           @default(true) @map("is_active")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  item              StockItem         @relation(fields: [itemId], references: [id])
+  transactions      StockTransaction[]
+
+  @@index([itemId])
+  @@index([batchNumber])
+  @@index([expiryDate])
+  @@map("stock_batches")
+  @@schema("tenant_template")
+}
+
+enum BatchStatus {
+  ACTIVE
+  QUARANTINE
+  EXPIRED
+  DEPLETED
+
+  @@schema("tenant_template")
+}
+
+model StockTransaction {
+  id                  Int                   @id @default(autoincrement())
+  transactionNumber   String                @unique @map("transaction_number") @db.VarChar(50)
+  transactionDate     DateTime              @map("transaction_date") @db.Date
+  transactionType     StockTransactionType  @map("transaction_type")
+
+  // Item reference
+  itemId              Int                   @map("item_id")
+  batchId             Int?                  @map("batch_id")
+
+  // Locations
+  sourceWarehouseId   Int?                  @map("source_warehouse_id")
+  destWarehouseId     Int?                  @map("dest_warehouse_id")
+
+  // Quantities (always positive, type determines direction)
+  quantity            Decimal               @db.Decimal(12, 3)
+  unitId              Int                   @map("unit_id")
+
+  // Cost/valuation
+  unitCost            Decimal?              @map("unit_cost") @db.Decimal(15, 4)
+  totalCost           Decimal?              @map("total_cost") @db.Decimal(15, 2)
+
+  // Reference to source document
+  referenceType       String?               @map("reference_type") @db.VarChar(50)
+  referenceId         Int?                  @map("reference_id")
+  referenceNumber     String?               @map("reference_number") @db.VarChar(100)
+
+  // Additional info
+  reason              String?               @db.VarChar(255)
+  notes               String?               @db.Text
+
+  // Audit
+  createdBy           Int?                  @map("created_by")
+  createdByName       String?               @map("created_by_name") @db.VarChar(100)
+  approvedBy          Int?                  @map("approved_by")
+  approvedAt          DateTime?             @map("approved_at")
+
+  // Status
+  status              TransactionStatus     @default(PENDING)
+  isReversed          Boolean               @default(false) @map("is_reversed")
+  reversalId          Int?                  @map("reversal_id")
+  createdAt           DateTime              @default(now()) @map("created_at")
+
+  // Relations
+  item                StockItem             @relation(fields: [itemId], references: [id])
+  batch               StockBatch?           @relation(fields: [batchId], references: [id])
+  sourceWarehouse     Warehouse?            @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  destWarehouse       Warehouse?            @relation("DestinationWarehouse", fields: [destWarehouseId], references: [id])
+  unit                Unit                  @relation(fields: [unitId], references: [id])
+
+  @@index([itemId])
+  @@index([transactionDate])
+  @@index([transactionType])
+  @@index([referenceType, referenceId])
+  @@map("stock_transactions")
+  @@schema("tenant_template")
+}
+
+enum StockTransactionType {
+  // Inward
+  RECEIPT           // General receipt
+  PURCHASE          // Purchase receipt
+  RETURN_IN         // Customer return
+  TRANSFER_IN       // Transfer from another location
+  PRODUCTION_OUT    // Output from production
+  ADJUSTMENT_IN     // Stock adjustment (increase)
+  OPENING_STOCK     // Initial/opening stock
+
+  // Outward
+  ISSUE             // General issue
+  SALE              // Sale/delivery
+  RETURN_OUT        // Return to vendor
+  TRANSFER_OUT      // Transfer to another location
+  PRODUCTION_IN     // Input to production (consumption)
+  ADJUSTMENT_OUT    // Stock adjustment (decrease)
+  SCRAP             // Scrapped/written off
+  SAMPLE            // Sample issue
+
+  @@schema("tenant_template")
+}
+
+enum TransactionStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REVERSED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+model StockAlert {
+  id              Int              @id @default(autoincrement())
+  itemId          Int              @map("item_id")
+  warehouseId     Int?             @map("warehouse_id")
+  alertType       StockAlertType   @map("alert_type")
+
+  // Alert details
+  currentLevel    Decimal          @map("current_level") @db.Decimal(12, 3)
+  thresholdLevel  Decimal          @map("threshold_level") @db.Decimal(12, 3)
+
+  // Status
+  status          AlertStatus      @default(ACTIVE)
+  acknowledgedBy  Int?             @map("acknowledged_by")
+  acknowledgedAt  DateTime?        @map("acknowledged_at")
+  resolvedAt      DateTime?        @map("resolved_at")
+
+  // Timestamps
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  item            StockItem        @relation(fields: [itemId], references: [id])
+
+  @@index([itemId])
+  @@index([alertType])
+  @@index([status])
+  @@map("stock_alerts")
+  @@schema("tenant_template")
+}
+
+enum StockAlertType {
+  LOW_STOCK
+  OUT_OF_STOCK
+  REORDER_POINT
+  OVERSTOCK
+  EXPIRY_WARNING
+
+  @@schema("tenant_template")
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+  IGNORED
+
+  @@schema("tenant_template")
+}
+
+model TenantModule {
+  id              Int              @id @default(autoincrement())
+  moduleCode      String           @unique @map("module_code") @db.VarChar(50)
+  moduleName      String           @map("module_name") @db.VarChar(100)
+  description     String?          @db.Text
+
+  // Configuration
+  isEnabled       Boolean          @default(true) @map("is_enabled")
+  settings        Json?            @db.JsonB
+
+  // Order in navigation
+  sortOrder       Int              @default(0) @map("sort_order")
+
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@map("tenant_modules")
+  @@schema("tenant_template")
+}
+
+// ===========================================
+// ACCOUNTING & FINANCIAL LEDGER MODULE
+// ===========================================
+
+model ChartOfAccount {
+  id                Int                 @id @default(autoincrement())
+  code              String              @unique @db.VarChar(20)
+  name              String              @db.VarChar(255)
+  nameUrdu          String?             @map("name_urdu") @db.VarChar(255)
+  accountType       AccountType         @map("account_type")
+  accountGroup      AccountGroup        @map("account_group")
+  parentId          Int?                @map("parent_id")
+  level             Int                 @default(1)
+  isHeader          Boolean             @default(false) @map("is_header")
+  isSystemAccount   Boolean             @default(false) @map("is_system_account")
+  normalBalance     NormalBalance       @default(DEBIT) @map("normal_balance")
+
+  // Currency
+  currency          String              @default("PKR") @db.VarChar(3)
+
+  // Control accounts
+  isControlAccount  Boolean             @default(false) @map("is_control_account")
+  controlledEntity  ControlledEntity?   @map("controlled_entity")
+
+  // Balances (denormalized for performance)
+  openingBalance    Decimal             @default(0) @map("opening_balance") @db.Decimal(15, 2)
+  currentBalance    Decimal             @default(0) @map("current_balance") @db.Decimal(15, 2)
+
+  // Status
+  isActive          Boolean             @default(true) @map("is_active")
+  isBankAccount     Boolean             @default(false) @map("is_bank_account")
+  bankDetails       Json?               @map("bank_details") @db.JsonB
+
+  // Metadata
+  description       String?             @db.Text
+  notes             String?             @db.Text
+  tags              String[]            @default([])
+
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  parent            ChartOfAccount?     @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children          ChartOfAccount[]    @relation("AccountHierarchy")
+  journalLines      JournalLine[]
+  budgets           AccountBudget[]
+  generalLedger     GeneralLedger[]
+
+  @@index([accountType])
+  @@index([accountGroup])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("chart_of_accounts")
+  @@schema("tenant_template")
+}
+
+enum AccountType {
+  // Assets
+  CASH
+  BANK
+  ACCOUNTS_RECEIVABLE
+  INVENTORY
+  FIXED_ASSET
+  ACCUMULATED_DEPRECIATION
+  OTHER_ASSET
+
+  // Liabilities
+  ACCOUNTS_PAYABLE
+  SHORT_TERM_LIABILITY
+  LONG_TERM_LIABILITY
+  TAX_PAYABLE
+
+  // Equity
+  CAPITAL
+  RETAINED_EARNINGS
+  DRAWINGS
+
+  // Revenue
+  SALES_REVENUE
+  OTHER_INCOME
+
+  // Expenses
+  COST_OF_GOODS_SOLD
+  OPERATING_EXPENSE
+  ADMINISTRATIVE_EXPENSE
+  FINANCIAL_EXPENSE
+  DEPRECIATION_EXPENSE
+  TAX_EXPENSE
+
+  @@schema("tenant_template")
+}
+
+enum AccountGroup {
+  ASSETS
+  LIABILITIES
+  EQUITY
+  REVENUE
+  EXPENSE
+
+  @@schema("tenant_template")
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+
+  @@schema("tenant_template")
+}
+
+enum ControlledEntity {
+  CUSTOMER
+  YARN_VENDOR
+  DYEING_VENDOR
+  GENERAL_SUPPLIER
+  BANK
+  INVENTORY
+
+  @@schema("tenant_template")
+}
+
+model FiscalYear {
+  id                Int               @id @default(autoincrement())
+  code              String            @unique @db.VarChar(20)
+  name              String            @db.VarChar(100)
+  startDate         DateTime          @map("start_date") @db.Date
+  endDate           DateTime          @map("end_date") @db.Date
+  status            FiscalYearStatus  @default(OPEN)
+  isCurrent         Boolean           @default(false) @map("is_current")
+
+  // Closing
+  closedAt          DateTime?         @map("closed_at")
+  closedBy          Int?              @map("closed_by")
+  closingEntryId    Int?              @map("closing_entry_id")
+
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  periods           FiscalPeriod[]
+  journals          JournalEntry[]
+  budgets           AccountBudget[]
+  generalLedger     GeneralLedger[]
+
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("fiscal_years")
+  @@schema("tenant_template")
+}
+
+enum FiscalYearStatus {
+  DRAFT
+  OPEN
+  CLOSING
+  CLOSED
+
+  @@schema("tenant_template")
+}
+
+model FiscalPeriod {
+  id                Int                 @id @default(autoincrement())
+  fiscalYearId      Int                 @map("fiscal_year_id")
+  periodNumber      Int                 @map("period_number")
+  name              String              @db.VarChar(50)
+  startDate         DateTime            @map("start_date") @db.Date
+  endDate           DateTime            @map("end_date") @db.Date
+  status            PeriodStatus        @default(OPEN)
+
+  // Closing
+  closedAt          DateTime?           @map("closed_at")
+  closedBy          Int?                @map("closed_by")
+
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  // Relations
+  fiscalYear        FiscalYear          @relation(fields: [fiscalYearId], references: [id])
+  journals          JournalEntry[]
+  generalLedger     GeneralLedger[]
+
+  @@unique([fiscalYearId, periodNumber])
+  @@index([status])
+  @@map("fiscal_periods")
+  @@schema("tenant_template")
+}
+
+enum PeriodStatus {
+  FUTURE
+  OPEN
+  CLOSED
+
+  @@schema("tenant_template")
+}
+
+model JournalEntry {
+  id                Int               @id @default(autoincrement())
+  entryNumber       String            @unique @map("entry_number") @db.VarChar(50)
+  fiscalYearId      Int               @map("fiscal_year_id")
+  fiscalPeriodId    Int               @map("fiscal_period_id")
+  entryDate         DateTime          @map("entry_date") @db.Date
+  entryType         JournalEntryType  @map("entry_type")
+
+  // Amounts (for quick reference)
+  totalDebit        Decimal           @map("total_debit") @db.Decimal(15, 2)
+  totalCredit       Decimal           @map("total_credit") @db.Decimal(15, 2)
+
+  // Reference/source
+  sourceModule      SourceModule?     @map("source_module")
+  sourceType        String?           @map("source_type") @db.VarChar(50)
+  sourceId          Int?              @map("source_id")
+  referenceNumber   String?           @map("reference_number") @db.VarChar(100)
+
+  // Description
+  narration         String?           @db.Text
+  description       String?           @db.Text
+
+  // Status & workflow
+  status            JournalStatus     @default(DRAFT)
+  isAutoGenerated   Boolean           @default(false) @map("is_auto_generated")
+  isReversing       Boolean           @default(false) @map("is_reversing")
+  reversedEntryId   Int?              @map("reversed_entry_id")
+  reversingEntryId  Int?              @map("reversing_entry_id")
+
+  // Approval
+  createdBy         Int               @map("created_by")
+  approvedBy        Int?              @map("approved_by")
+  approvedAt        DateTime?         @map("approved_at")
+  rejectedBy        Int?              @map("rejected_by")
+  rejectedAt        DateTime?         @map("rejected_at")
+  rejectionReason   String?           @map("rejection_reason") @db.Text
+
+  // Posting
+  postedAt          DateTime?         @map("posted_at")
+  postedBy          Int?              @map("posted_by")
+
+  // Attachments
+  attachments       Json?             @db.JsonB
+
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  fiscalYear        FiscalYear        @relation(fields: [fiscalYearId], references: [id])
+  fiscalPeriod      FiscalPeriod      @relation(fields: [fiscalPeriodId], references: [id])
+  lines             JournalLine[]
+  generalLedger     GeneralLedger[]
+
+  @@index([entryDate])
+  @@index([status])
+  @@index([sourceModule, sourceId])
+  @@index([fiscalYearId])
+  @@index([fiscalPeriodId])
+  @@map("journal_entries")
+  @@schema("tenant_template")
+}
+
+enum JournalEntryType {
+  GENERAL           // Manual journal
+  SALES             // Auto from sales
+  PURCHASE          // Auto from purchases
+  RECEIPT           // Cash/bank receipt
+  PAYMENT           // Cash/bank payment
+  ADJUSTMENT        // Adjusting entries
+  CLOSING           // Period/year end closing
+  OPENING           // Opening balances
+  REVERSING         // Reversing entries
+
+  @@schema("tenant_template")
+}
+
+enum JournalStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  POSTED
+  REJECTED
+  VOIDED
+
+  @@schema("tenant_template")
+}
+
+enum SourceModule {
+  MANUAL
+  SALES
+  PURCHASES
+  INVENTORY
+  PAYROLL
+  FIXED_ASSETS
+  BANK
+  RECEIVABLES
+  PAYABLES
+
+  @@schema("tenant_template")
+}
+
+model JournalLine {
+  id                Int             @id @default(autoincrement())
+  journalEntryId    Int             @map("journal_entry_id")
+  lineNumber        Int             @map("line_number")
+  accountId         Int             @map("account_id")
+
+  // Amounts
+  debitAmount       Decimal         @default(0) @map("debit_amount") @db.Decimal(15, 2)
+  creditAmount      Decimal         @default(0) @map("credit_amount") @db.Decimal(15, 2)
+
+  // Multi-currency support
+  currency          String          @default("PKR") @db.VarChar(3)
+  exchangeRate      Decimal         @default(1) @map("exchange_rate") @db.Decimal(12, 6)
+  baseCurrencyDebit  Decimal        @default(0) @map("base_currency_debit") @db.Decimal(15, 2)
+  baseCurrencyCredit Decimal        @default(0) @map("base_currency_credit") @db.Decimal(15, 2)
+
+  // Sub-ledger reference (for control accounts)
+  entityType        String?         @map("entity_type") @db.VarChar(50)
+  entityId          Int?            @map("entity_id")
+
+  // Description
+  description       String?         @db.VarChar(500)
+
+  // Cost center / department
+  departmentId      Int?            @map("department_id")
+  costCenterId      Int?            @map("cost_center_id")
+  projectId         Int?            @map("project_id")
+
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  journalEntry      JournalEntry    @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account           ChartOfAccount  @relation(fields: [accountId], references: [id])
+  generalLedger     GeneralLedger[]
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([entityType, entityId])
+  @@map("journal_lines")
+  @@schema("tenant_template")
+}
+
+model GeneralLedger {
+  id                Int             @id @default(autoincrement())
+  accountId         Int             @map("account_id")
+  fiscalYearId      Int             @map("fiscal_year_id")
+  fiscalPeriodId    Int             @map("fiscal_period_id")
+  entryDate         DateTime        @map("entry_date") @db.Date
+  journalEntryId    Int             @map("journal_entry_id")
+  journalLineId     Int             @map("journal_line_id")
+
+  // Amounts
+  debitAmount       Decimal         @default(0) @map("debit_amount") @db.Decimal(15, 2)
+  creditAmount      Decimal         @default(0) @map("credit_amount") @db.Decimal(15, 2)
+  runningBalance    Decimal         @map("running_balance") @db.Decimal(15, 2)
+
+  // Reference
+  referenceNumber   String?         @map("reference_number") @db.VarChar(100)
+  description       String?         @db.VarChar(500)
+
+  // Sub-ledger tracking
+  entityType        String?         @map("entity_type") @db.VarChar(50)
+  entityId          Int?            @map("entity_id")
+
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  // Relations
+  account           ChartOfAccount  @relation(fields: [accountId], references: [id])
+  fiscalYear        FiscalYear      @relation(fields: [fiscalYearId], references: [id])
+  fiscalPeriod      FiscalPeriod    @relation(fields: [fiscalPeriodId], references: [id])
+  journalEntry      JournalEntry    @relation(fields: [journalEntryId], references: [id])
+  journalLine       JournalLine     @relation(fields: [journalLineId], references: [id])
+
+  @@index([accountId, entryDate])
+  @@index([fiscalYearId])
+  @@index([fiscalPeriodId])
+  @@index([journalEntryId])
+  @@index([entityType, entityId])
+  @@map("general_ledger")
+  @@schema("tenant_template")
+}
+
+model BankReconciliation {
+  id                  Int                       @id @default(autoincrement())
+  accountId           Int                       @map("account_id")
+  statementDate       DateTime                  @map("statement_date") @db.Date
+  statementNumber     String?                   @map("statement_number") @db.VarChar(50)
+
+  // Opening balance
+  openingBookBalance  Decimal                   @map("opening_book_balance") @db.Decimal(15, 2)
+  openingBankBalance  Decimal                   @map("opening_bank_balance") @db.Decimal(15, 2)
+
+  // Closing balance
+  closingBookBalance  Decimal                   @map("closing_book_balance") @db.Decimal(15, 2)
+  closingBankBalance  Decimal                   @map("closing_bank_balance") @db.Decimal(15, 2)
+
+  // Reconciliation
+  reconciledAmount    Decimal                   @default(0) @map("reconciled_amount") @db.Decimal(15, 2)
+  unreconciledDiff    Decimal                   @default(0) @map("unreconciled_diff") @db.Decimal(15, 2)
+
+  status              ReconciliationStatus      @default(IN_PROGRESS)
+  reconciledAt        DateTime?                 @map("reconciled_at")
+  reconciledBy        Int?                      @map("reconciled_by")
+
+  notes               String?                   @db.Text
+
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+
+  // Relations
+  items               BankReconciliationItem[]
+
+  @@index([accountId])
+  @@index([statementDate])
+  @@map("bank_reconciliations")
+  @@schema("tenant_template")
+}
+
+enum ReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+model BankReconciliationItem {
+  id                  Int                   @id @default(autoincrement())
+  reconciliationId    Int                   @map("reconciliation_id")
+  generalLedgerId     Int?                  @map("general_ledger_id")
+
+  // Bank statement data
+  statementDate       DateTime              @map("statement_date") @db.Date
+  statementRef        String?               @map("statement_ref") @db.VarChar(100)
+  statementAmount     Decimal               @map("statement_amount") @db.Decimal(15, 2)
+  statementDescription String?              @map("statement_description") @db.VarChar(500)
+
+  // Matching
+  isMatched           Boolean               @default(false) @map("is_matched")
+  matchedAt           DateTime?             @map("matched_at")
+
+  // For outstanding items
+  isOutstanding       Boolean               @default(false) @map("is_outstanding")
+  outstandingType     OutstandingType?      @map("outstanding_type")
+
+  createdAt           DateTime              @default(now()) @map("created_at")
+
+  reconciliation      BankReconciliation    @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  @@index([reconciliationId])
+  @@map("bank_reconciliation_items")
+  @@schema("tenant_template")
+}
+
+enum OutstandingType {
+  OUTSTANDING_CHEQUE
+  DEPOSIT_IN_TRANSIT
+  BANK_CHARGE
+  BANK_INTEREST
+  OTHER
+
+  @@schema("tenant_template")
+}
+
+model AccountBudget {
+  id                Int             @id @default(autoincrement())
+  accountId         Int             @map("account_id")
+  fiscalYearId      Int             @map("fiscal_year_id")
+  periodNumber      Int?            @map("period_number")
+
+  budgetAmount      Decimal         @map("budget_amount") @db.Decimal(15, 2)
+  actualAmount      Decimal         @default(0) @map("actual_amount") @db.Decimal(15, 2)
+  varianceAmount    Decimal         @default(0) @map("variance_amount") @db.Decimal(15, 2)
+  variancePercent   Decimal         @default(0) @map("variance_percent") @db.Decimal(7, 2)
+
+  notes             String?         @db.Text
+
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  account           ChartOfAccount  @relation(fields: [accountId], references: [id])
+  fiscalYear        FiscalYear      @relation(fields: [fiscalYearId], references: [id])
+
+  @@unique([accountId, fiscalYearId, periodNumber])
+  @@map("account_budgets")
+  @@schema("tenant_template")
+}
+
+model AccountingSettings {
+  id                      Int       @id @default(autoincrement())
+
+  // Base currency
+  baseCurrency            String    @default("PKR") @map("base_currency") @db.VarChar(3)
+
+  // Fiscal year settings (July for Pakistan)
+  fiscalYearStartMonth    Int       @default(7) @map("fiscal_year_start_month")
+  fiscalYearStartDay      Int       @default(1) @map("fiscal_year_start_day")
+
+  // Accounting method
+  accountingMethod        String    @default("ACCRUAL") @map("accounting_method") @db.VarChar(20)
+
+  // Default accounts (FK to ChartOfAccount)
+  defaultCashAccountId    Int?      @map("default_cash_account_id")
+  defaultBankAccountId    Int?      @map("default_bank_account_id")
+  defaultReceivablesId    Int?      @map("default_receivables_id")
+  defaultPayablesId       Int?      @map("default_payables_id")
+  defaultSalesRevenueId   Int?      @map("default_sales_revenue_id")
+  defaultCOGSId           Int?      @map("default_cogs_id")
+  defaultInventoryId      Int?      @map("default_inventory_id")
+  retainedEarningsId      Int?      @map("retained_earnings_id")
+
+  // Tax settings (Pakistan GST 17%)
+  defaultTaxAccountId     Int?      @map("default_tax_account_id")
+  salesTaxRate            Decimal   @default(17) @map("sales_tax_rate") @db.Decimal(5, 2)
+
+  // Auto-posting
+  autoPostOnApproval      Boolean   @default(true) @map("auto_post_on_approval")
+  requireApprovalThreshold Decimal? @map("require_approval_threshold") @db.Decimal(15, 2)
+
+  // Number series
+  journalPrefix           String    @default("JV") @map("journal_prefix") @db.VarChar(10)
+  journalNextNumber       Int       @default(1) @map("journal_next_number")
+
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@map("accounting_settings")
+  @@schema("tenant_template")
+}
+
+model CurrencyExchangeRate {
+  id                Int       @id @default(autoincrement())
+  fromCurrency      String    @map("from_currency") @db.VarChar(3)
+  toCurrency        String    @map("to_currency") @db.VarChar(3)
+  effectiveDate     DateTime  @map("effective_date") @db.Date
+  rate              Decimal   @db.Decimal(12, 6)
+  source            String?   @db.VarChar(50)
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@unique([fromCurrency, toCurrency, effectiveDate])
+  @@index([effectiveDate])
+  @@map("currency_exchange_rates")
+  @@schema("tenant_template")
+}

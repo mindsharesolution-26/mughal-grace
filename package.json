@@ -1,0 +1,37 @@
+{
+  "name": "mughal-grace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Knitting Factory SaaS - Multi-tenant factory intelligence system",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "dev:api": "pnpm --filter @mughal-grace/api dev",
+    "dev:frontend": "pnpm --filter @mughal-grace/frontend dev",
+    "dev:whatsapp": "pnpm --filter @mughal-grace/whatsapp-api dev",
+    "build": "pnpm run --parallel build",
+    "build:api": "pnpm --filter @mughal-grace/api build",
+    "build:frontend": "pnpm --filter @mughal-grace/frontend build",
+    "lint": "pnpm run --parallel lint",
+    "lint:fix": "pnpm run --parallel lint:fix",
+    "typecheck": "pnpm run --parallel typecheck",
+    "test": "pnpm run --parallel test",
+    "db:migrate": "pnpm --filter @mughal-grace/api db:migrate",
+    "db:generate": "pnpm --filter @mughal-grace/api db:generate",
+    "db:studio": "pnpm --filter @mughal-grace/api db:studio",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules"
+  },
+  "keywords": [
+    "knitting",
+    "factory",
+    "saas",
+    "multi-tenant",
+    "erp"
+  ],
+  "author": "Mughal Grace",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
