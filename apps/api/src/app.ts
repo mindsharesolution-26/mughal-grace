@@ -48,15 +48,17 @@ if (config.nodeEnv === 'development') {
   app.use(morgan('combined'));
 }
 
-// Health check
-app.get('/health', (_req: Request, res: Response) => {
+// Health check (both paths for flexibility)
+const healthResponse = (_req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: config.nodeEnv,
   });
-});
+};
+app.get('/health', healthResponse);
+app.get('/api/v1/health', healthResponse);
 
 // API routes
 app.use('/api/v1', apiRouter);
