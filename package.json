@@ -1,6 +1,6 @@
 {
   "name": "mughal-grace",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Knitting Factory SaaS - Multi-tenant factory intelligence system",
   "scripts": {
