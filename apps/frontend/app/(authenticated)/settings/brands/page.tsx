@@ -196,11 +196,16 @@ function BrandModal({ editing, onClose, onSave, showToast }: BrandModalProps) {
         if (val === undefined || val === null || val.trim() === '') return null;
         return val.trim();
       };
+      // Helper for fields that don't accept null (only undefined)
+      const emptyToUndefined = (val: string | null | undefined): string | undefined => {
+        if (val === undefined || val === null || val.trim() === '') return undefined;
+        return val.trim();
+      };
 
       // Create clean payload - convert empty strings to null for optional fields
       const payload: BrandFormData = {
         name: formData.name.trim(),
-        description: emptyToNull(formData.description),
+        description: emptyToUndefined(formData.description),
         phone: emptyToNull(formData.phone),
         email: emptyToNull(formData.email),
         fax: emptyToNull(formData.fax),
@@ -214,7 +219,7 @@ function BrandModal({ editing, onClose, onSave, showToast }: BrandModalProps) {
         taxId: emptyToNull(formData.taxId),
         registrationNumber: emptyToNull(formData.registrationNumber),
         website: emptyToNull(formData.website),
-        notes: emptyToNull(formData.notes),
+        notes: emptyToUndefined(formData.notes),
         isActive: formData.isActive,
         sortOrder: formData.sortOrder,
       };

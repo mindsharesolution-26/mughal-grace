@@ -82,7 +82,7 @@ export default function YarnLedgerPage() {
       setYarnTypes(typesResponse);
     } catch (error) {
       console.error('Failed to load ledger data:', error);
-      showToast('Failed to load ledger data', 'error');
+      showToast('error', 'Failed to load ledger data');
     } finally {
       setLoading(false);
     }

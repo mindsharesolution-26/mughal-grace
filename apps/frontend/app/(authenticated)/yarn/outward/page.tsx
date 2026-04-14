@@ -113,7 +113,7 @@ export default function YarnOutwardPage() {
     return ledgerSummary.find((s) => String(s.id) === selectedYarnId);
   }, [selectedYarnId, ledgerSummary]);
 
-  const isOverStock = selectedYarnStock && quantityIssued > selectedYarnStock.currentBalance;
+  const isOverStock = selectedYarnStock ? quantityIssued > selectedYarnStock.currentBalance : false;
 
   const onSubmit = async (data: OutwardForm) => {
     if (isOverStock) {

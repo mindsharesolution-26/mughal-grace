@@ -10,8 +10,8 @@ import {
   CountSystem,
 } from '@/lib/types/yarn';
 
-// Demo mode flag - should match AuthContext
-const DEMO_MODE = false;
+// Re-export types for convenience
+export type { YarnTypeLookup, KnittingYarnLookup };
 
 // API response type
 interface ApiYarnType {

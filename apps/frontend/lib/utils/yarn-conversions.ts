@@ -13,7 +13,7 @@
  */
 
 import {
-  YarnCountSystem,
+  CountSystem as YarnCountSystem,
   WeightUnit,
   WEIGHT_UNITS,
   CurrencyCode,
@@ -37,8 +37,6 @@ export function toTex(value: number, fromSystem: YarnCountSystem): number {
       return 1000 / value;
     case 'DENIER':
       return value / 9;
-    case 'DTEX':
-      return value / 10;
     default:
       throw new Error(`Unknown yarn count system: ${fromSystem}`);
   }
@@ -57,8 +55,6 @@ export function fromTex(texValue: number, toSystem: YarnCountSystem): number {
       return 1000 / texValue;
     case 'DENIER':
       return texValue * 9;
-    case 'DTEX':
-      return texValue * 10;
     default:
       throw new Error(`Unknown yarn count system: ${toSystem}`);
   }
@@ -90,7 +86,6 @@ export function getAllCountEquivalents(
     NM: roundToDecimals(fromTex(texValue, 'NM'), 2),
     TEX: roundToDecimals(texValue, 2),
     DENIER: roundToDecimals(fromTex(texValue, 'DENIER'), 1),
-    DTEX: roundToDecimals(fromTex(texValue, 'DTEX'), 1),
   };
 }
 
@@ -110,8 +105,6 @@ export function formatYarnCount(value: number, system: YarnCountSystem): string 
       return `${formatted} tex`;
     case 'DENIER':
       return `${formatted}D`;
-    case 'DTEX':
-      return `${formatted} dtex`;
     default:
       return `${formatted}`;
   }

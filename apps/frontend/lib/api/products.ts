@@ -5,6 +5,7 @@ import {
   ProductLookup,
   StockMovement,
   StockMovementInput,
+  LedgerEntry,
 } from '@/lib/types/product';
 
 export const productsApi = {

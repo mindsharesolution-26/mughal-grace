@@ -103,12 +103,9 @@ export default function StockInPage() {
   const watchedSourceType = watch('sourceType');
   const watchedItems = watch('items');
 
-  // Auto-fill unit when yarn type is selected
-  const handleYarnTypeChange = (index: number, yarnTypeId: string) => {
-    const yarnType = yarnTypes.find((y) => String(y.id) === yarnTypeId);
-    if (yarnType && yarnType.priceUnit) {
-      setValue(`items.${index}.unit`, yarnType.priceUnit);
-    }
+  // Handle yarn type selection
+  const handleYarnTypeChange = (_index: number, _yarnTypeId: string) => {
+    // YarnTypeLookup doesn't include priceUnit, so we just track selection
   };
 
   // Calculate totals

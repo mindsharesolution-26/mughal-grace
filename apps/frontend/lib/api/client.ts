@@ -70,7 +70,7 @@ api.interceptors.response.use(
         Cookies.remove('refresh_token');
 
         // Only redirect to login if not in dev mode
-        if (!DEV_MODE && typeof window !== 'undefined') {
+        if (!DEV_AUTH_SECRET && typeof window !== 'undefined') {
           window.location.href = '/login';
         }
 
