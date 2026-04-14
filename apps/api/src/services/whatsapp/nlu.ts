@@ -168,7 +168,7 @@ class NLUService {
   /**
    * Detect language (English or Urdu)
    */
-  private detectLanguage(text: string): 'en' | 'ur' {
+  detectLanguage(text: string): 'en' | 'ur' {
     let urduScore = 0;
 
     for (const pattern of URDU_PATTERNS) {
@@ -264,25 +264,25 @@ class NLUService {
     const lower = dateStr.toLowerCase();
 
     if (lower === 'today' || lower === 'aaj') {
-      return new Date().toISOString().split('T')[0];
+      return new Date().toISOString().split('T')[0]!;
     }
 
     if (lower === 'yesterday' || lower === 'kal') {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      return yesterday.toISOString().split('T')[0];
+      return yesterday.toISOString().split('T')[0]!;
     }
 
     if (lower === 'tomorrow') {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().split('T')[0];
+      return tomorrow.toISOString().split('T')[0]!;
     }
 
     // Try to parse other date formats
     const parsed = new Date(dateStr);
     if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split('T')[0];
+      return parsed.toISOString().split('T')[0]!;
     }
 
     return dateStr;

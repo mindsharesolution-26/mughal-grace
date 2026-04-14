@@ -189,14 +189,14 @@ class WhatsAppClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    const data = await response.json();
+    const data = await response.json() as T & { error?: { message?: string } };
 
     if (!response.ok) {
       logger.error('WhatsApp API error:', data);
       throw new Error(data.error?.message || 'WhatsApp API request failed');
     }
 
-    return data as T;
+    return data;
   }
 
   /**
@@ -348,7 +348,7 @@ class WhatsAppClient {
       },
     });
 
-    const data = await response.json();
+    const data = await response.json() as { url: string };
     return data.url;
   }
 

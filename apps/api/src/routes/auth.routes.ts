@@ -1,9 +1,9 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { authController } from '../controllers/auth.controller';
 import { validateBody } from '../middleware/validate';
 
-export const authRouter = Router();
+export const authRouter: Router = Router();
 
 // Validation schemas
 const registerSchema = z.object({

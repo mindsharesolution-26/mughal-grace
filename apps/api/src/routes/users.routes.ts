@@ -8,7 +8,7 @@ import { validateBody, validateParams } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 import { logger } from '../utils/logger';
 
-export const usersRouter = Router();
+export const usersRouter: Router = Router();
 
 // Apply authentication and tenant middleware to all routes
 usersRouter.use(authMiddleware);
@@ -126,7 +126,7 @@ usersRouter.get(
   validateParams(idParamSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const tenantId = req.user!.tenantId;
       const prisma = getAdminClient();
 
@@ -244,7 +244,7 @@ usersRouter.put(
   validateBody(updateUserSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const tenantId = req.user!.tenantId;
       const currentUserId = req.user!.userId;
       const prisma = getAdminClient();
@@ -322,7 +322,7 @@ usersRouter.put(
   validateBody(updatePasswordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const tenantId = req.user!.tenantId;
       const prisma = getAdminClient();
       const { password } = req.body;
@@ -362,7 +362,7 @@ usersRouter.put(
   validateParams(idParamSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const tenantId = req.user!.tenantId;
       const currentUserId = req.user!.userId;
       const prisma = getAdminClient();
@@ -415,7 +415,7 @@ usersRouter.delete(
   validateParams(idParamSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const tenantId = req.user!.tenantId;
       const currentUserId = req.user!.userId;
       const prisma = getAdminClient();

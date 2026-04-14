@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { requirePermission } from '../middleware/rbac';
 
-export const dyeingRouter = Router();
+export const dyeingRouter: Router = Router();
 
 dyeingRouter.use(authMiddleware);
 dyeingRouter.use(tenantMiddleware);

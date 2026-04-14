@@ -4,7 +4,7 @@ import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 
-export const yarnOutwardRouter = Router();
+export const yarnOutwardRouter: Router = Router();
 
 // Validation schemas
 const createOutwardSchema = z.object({

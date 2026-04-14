@@ -5,7 +5,7 @@ import { requirePermission } from '../middleware/rbac';
 import { z } from 'zod';
 import { TenantRequest } from '../types';
 
-export const fabricsRouter = Router();
+export const fabricsRouter: Router = Router();
 
 fabricsRouter.use(authMiddleware);
 fabricsRouter.use(tenantMiddleware);

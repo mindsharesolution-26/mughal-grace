@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { requirePermission } from '../middleware/rbac';
 
-export const productionRouter = Router();
+export const productionRouter: Router = Router();
 
 productionRouter.use(authMiddleware);
 productionRouter.use(tenantMiddleware);

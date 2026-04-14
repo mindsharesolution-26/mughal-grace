@@ -135,14 +135,14 @@ async function processIncomingMessage(prisma: PrismaClient, message: any) {
     }
 
     // Process with NLU
-    const language = nluService.detectLanguage(text);
-    const nluResult = nluService.parseQuery(text, language);
+    const nluResult = nluService.parseQuery(text);
+    const language = nluResult.language;
 
     // Generate response
     let response: string;
 
     if (nluResult.intent === 'help') {
-      response = nluService.generateHelpMessage(language);
+      response = nluService.generateResponse('help', language);
     } else if (nluResult.intent === 'greeting') {
       response = language === 'ur'
         ? 'Hello! I am the Mughal Grace assistant. How can I help you?'
@@ -156,7 +156,7 @@ async function processIncomingMessage(prisma: PrismaClient, message: any) {
     } else if (nluResult.intent === 'sales_summary') {
       response = await handleSalesQuery(prisma, nluResult.entities, language);
     } else {
-      response = nluService.generateResponse(nluResult, language, null);
+      response = nluService.generateResponse(nluResult.intent, language, null);
     }
 
     // Send response
@@ -235,7 +235,7 @@ async function handleStockQuery(prisma: PrismaClient, entities: any, language: '
 /**
  * Handle production query
  */
-async function handleProductionQuery(prisma: PrismaClient, entities: any, language: 'en' | 'ur'): Promise<string> {
+async function handleProductionQuery(prisma: PrismaClient, _entities: any, _language: 'en' | 'ur'): Promise<string> {
   try {
     const today = new Date();
     const startOfDay = new Date(today);
@@ -265,7 +265,7 @@ async function handleProductionQuery(prisma: PrismaClient, entities: any, langua
 /**
  * Handle order query
  */
-async function handleOrderQuery(prisma: PrismaClient, entities: any, language: 'en' | 'ur'): Promise<string> {
+async function handleOrderQuery(prisma: PrismaClient, entities: any, _language: 'en' | 'ur'): Promise<string> {
   try {
     const orderNumber = entities.orderNumber;
 
@@ -302,7 +302,7 @@ async function handleOrderQuery(prisma: PrismaClient, entities: any, language: '
 /**
  * Handle sales query
  */
-async function handleSalesQuery(prisma: PrismaClient, entities: any, language: 'en' | 'ur'): Promise<string> {
+async function handleSalesQuery(prisma: PrismaClient, _entities: any, _language: 'en' | 'ur'): Promise<string> {
   try {
     const today = new Date();
     const startOfDay = new Date(today);
@@ -409,10 +409,10 @@ const sendMessage = async (req: Request, res: Response) => {
       logger.warn('Could not store message in database:', dbError);
     }
 
-    res.json({ success: true, messageId: result.messages?.[0]?.id });
+    return res.json({ success: true, messageId: result.messages?.[0]?.id });
   } catch (error: any) {
     logger.error('Error sending message:', error);
-    res.status(500).json({ error: error.message || 'Failed to send message' });
+    return res.status(500).json({ error: error.message || 'Failed to send message' });
   }
 };
 
@@ -434,10 +434,10 @@ const sendTemplateMessage = async (req: Request, res: Response) => {
       components
     );
 
-    res.json({ success: true, messageId: result.messages?.[0]?.id });
+    return res.json({ success: true, messageId: result.messages?.[0]?.id });
   } catch (error: any) {
     logger.error('Error sending template message:', error);
-    res.status(500).json({ error: error.message || 'Failed to send template message' });
+    return res.status(500).json({ error: error.message || 'Failed to send template message' });
   }
 };
 
@@ -616,10 +616,10 @@ Mughal Grace ERP System`;
 
     const result = await whatsappClient.sendTextMessage(phoneNumber, testMessage);
 
-    res.json({ success: true, messageId: result.messages?.[0]?.id });
+    return res.json({ success: true, messageId: result.messages?.[0]?.id });
   } catch (error: any) {
     logger.error('Error sending test message:', error);
-    res.status(500).json({ error: error.message || 'Failed to send test message' });
+    return res.status(500).json({ error: error.message || 'Failed to send test message' });
   }
 };
 
@@ -643,13 +643,13 @@ const triggerDailyReport = async (req: Request, res: Response) => {
     );
 
     if (success) {
-      res.json({ success: true, message: 'Daily report sent successfully' });
+      return res.json({ success: true, message: 'Daily report sent successfully' });
     } else {
-      res.status(500).json({ error: 'Failed to send daily report' });
+      return res.status(500).json({ error: 'Failed to send daily report' });
     }
   } catch (error: any) {
     logger.error('Error triggering daily report:', error);
-    res.status(500).json({ error: error.message || 'Failed to trigger daily report' });
+    return res.status(500).json({ error: error.message || 'Failed to trigger daily report' });
   }
 };
 

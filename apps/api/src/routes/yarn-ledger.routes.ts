@@ -6,7 +6,7 @@ import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams, validateQuery } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 
-export const yarnLedgerRouter = Router();
+export const yarnLedgerRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 yarnLedgerRouter.use(authMiddleware);

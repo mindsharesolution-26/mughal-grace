@@ -19,7 +19,7 @@ import { machinesRouter } from './machines.routes';
 import { inventoryRouter } from './inventory.routes';
 import { fabricsRouter } from './fabrics.routes';
 
-export const apiRouter = Router();
+export const apiRouter: Router = Router();
 
 // Public routes
 apiRouter.use('/auth', authRouter);

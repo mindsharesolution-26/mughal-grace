@@ -5,7 +5,7 @@ import { requireRole, requirePermission } from '../middleware/rbac';
 import { z } from 'zod';
 import { TenantRequest } from '../types';
 
-export const settingsRouter = Router();
+export const settingsRouter: Router = Router();
 
 settingsRouter.use(authMiddleware);
 settingsRouter.use(tenantMiddleware);

@@ -11,6 +11,6 @@ export interface TenantRequest extends Request {
     email: string;
     role: string;
     permissions: string[];
-    type: string;
+    type: 'access' | 'refresh';
   };
 }

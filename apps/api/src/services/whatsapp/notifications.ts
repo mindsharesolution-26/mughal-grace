@@ -5,7 +5,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import { whatsappClient } from './client';
-import { nluService } from './nlu';
 import { logger } from '../../utils/logger';
 
 // Notification types
@@ -318,7 +317,7 @@ Mughal Grace Textiles`;
     // Get production data
     const productionLogs = await prisma.productionLog.findMany({
       where: {
-        date: {
+        productionDate: {
           gte: startOfDay,
           lte: endOfDay,
         },
@@ -326,17 +325,17 @@ Mughal Grace Textiles`;
     });
 
     const totalRolls = productionLogs.reduce((sum, log) => sum + (log.rollsProduced || 0), 0);
-    const totalWeight = productionLogs.reduce((sum, log) => sum + Number(log.totalWeightKg || 0), 0);
+    const totalWeight = productionLogs.reduce((sum, log) => sum + Number(log.actualWeight || 0), 0);
 
     // Get machine count
     const machines = await prisma.machine.findMany({
-      where: { isActive: true },
+      where: { status: 'OPERATIONAL' },
     });
-    const runningMachines = machines.filter((m) => m.currentStatus === 'RUNNING').length;
+    const runningMachines = machines.filter((m) => m.status === 'OPERATIONAL').length;
 
-    // Calculate efficiency
-    const totalTargetRolls = productionLogs.reduce((sum, log) => sum + (log.targetRolls || 0), 0);
-    const efficiency = totalTargetRolls > 0 ? Math.round((totalRolls / totalTargetRolls) * 100) : 0;
+    // Calculate efficiency based on target vs actual weight
+    const totalTargetWeight = productionLogs.reduce((sum, log) => sum + Number(log.targetWeight || 0), 0);
+    const efficiency = totalTargetWeight > 0 ? Math.round((totalWeight / totalTargetWeight) * 100) : 0;
 
     // Get sales data
     const salesOrders = await prisma.salesOrder.findMany({
@@ -362,17 +361,12 @@ Mughal Grace Textiles`;
     });
     const paymentsReceived = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
-    // Get low stock items
-    const yarnTypes = await prisma.yarnType.findMany({
-      where: { isActive: true },
-    });
-
     // For now, we'll simulate low stock check
     // In real implementation, this would check actual stock levels
     const lowStockItems: Array<{ code: string; name: string; currentStock: number; minStock: number }> = [];
 
     return {
-      date: reportDate.toISOString().split('T')[0],
+      date: reportDate.toISOString().split('T')[0]!,
       production: {
         totalRolls,
         totalWeight,
@@ -396,24 +390,27 @@ Mughal Grace Textiles`;
    * Process pending payment reminders
    */
   async processPendingPaymentReminders(prisma: PrismaClient): Promise<number> {
-    // Find customers with outstanding balances
+    // Find customer outstanding balances
     const outstandingBalances = await prisma.outstandingBalance.findMany({
       where: {
-        balanceAmount: { gt: 0 },
-      },
-      include: {
-        customer: true,
+        entityType: 'customer',
+        currentBalance: { gt: 0 },
       },
     });
 
     let sentCount = 0;
 
     for (const balance of outstandingBalances) {
-      if (balance.customer.phone) {
+      // Look up the customer details
+      const customer = await prisma.customer.findUnique({
+        where: { id: balance.entityId },
+      });
+
+      if (customer?.phone) {
         const sent = await this.sendPaymentReminder({
-          customerName: balance.customer.name,
-          customerPhone: balance.customer.phone,
-          amount: Number(balance.balanceAmount),
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          amount: Number(balance.currentBalance),
         });
 
         if (sent) {

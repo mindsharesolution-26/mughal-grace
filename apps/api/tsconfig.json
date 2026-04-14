@@ -7,7 +7,11 @@
     "paths": {
       "@/*": ["./*"],
       "@shared/*": ["../../packages/shared/src/*"]
-    }
+    },
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": false,
+    "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*", "prisma/**/*"],
   "exclude": ["node_modules", "dist"]

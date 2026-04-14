@@ -7,7 +7,7 @@ import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 
-export const productsRouter = Router();
+export const productsRouter: Router = Router();
 
 // Generate unique QR code for product
 function generateQRCode(): string {
@@ -341,7 +341,7 @@ productsRouter.get('/:id/stock-history', requirePermission('products:read'), val
 // GET /products/search-by-qr/:qrCode - Find product by QR code
 productsRouter.get('/search-by-qr/:qrCode', requirePermission('products:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { qrCode } = req.params;
+    const qrCode = req.params.qrCode as string;
 
     const product = await req.prisma!.product.findUnique({
       where: { qrCode },

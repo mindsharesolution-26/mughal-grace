@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 
-export const adminRouter = Router();
+export const adminRouter: Router = Router();
 
 // Admin routes require SUPER_ADMIN role
 adminRouter.use(authMiddleware);

@@ -8,7 +8,7 @@ import { AppError } from '../middleware/error-handler';
 import { logger } from '../utils/logger';
 import { parsePagination, buildPaginationMeta } from '../utils/pagination';
 
-export const machinesRouter = Router();
+export const machinesRouter: Router = Router();
 
 // Apply middleware to all routes
 machinesRouter.use(authMiddleware);
@@ -252,7 +252,7 @@ machinesRouter.get('/maintenance-schedule', requirePermission('production:read')
 // ========================================
 machinesRouter.get('/:id', requirePermission('production:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     const machine = await req.prisma!.machine.findUnique({
       where: { id },
@@ -285,7 +285,7 @@ machinesRouter.get('/:id', requirePermission('production:read'), async (req: Req
             id: true,
             shiftId: true,
             rollsProduced: true,
-            totalWeight: true,
+            actualWeight: true,
             createdAt: true,
           }
         },
@@ -297,7 +297,7 @@ machinesRouter.get('/:id', requirePermission('production:read'), async (req: Req
             reason: true,
             startTime: true,
             endTime: true,
-            duration: true,
+            durationMinutes: true,
           }
         },
       },
@@ -308,9 +308,9 @@ machinesRouter.get('/:id', requirePermission('production:read'), async (req: Req
     }
 
     // Calculate summary stats
-    const totalNeedlesInstalled = machine.needleAllocations.reduce(
-      (sum, a) => sum + a.installedQuantity, 0
-    );
+    const totalNeedlesInstalled = machine.needleAllocations?.reduce(
+      (sum: number, a: { installedQuantity: number }) => sum + a.installedQuantity, 0
+    ) || 0;
 
     const utilizationPercent = machine.totalNeedleSlots
       ? Math.round((totalNeedlesInstalled / machine.totalNeedleSlots) * 100)
@@ -321,7 +321,7 @@ machinesRouter.get('/:id', requirePermission('production:read'), async (req: Req
       summary: {
         totalNeedlesInstalled,
         utilizationPercent,
-        activeAllocations: machine.needleAllocations.length,
+        activeAllocations: machine.needleAllocations?.length || 0,
       }
     });
   } catch (error) {
@@ -365,7 +365,7 @@ machinesRouter.post('/', requirePermission('production:write'), validateBody(cre
 // ========================================
 machinesRouter.put('/:id', requirePermission('production:write'), validateBody(updateMachineSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const data = req.body;
 
     const existing = await req.prisma!.machine.findUnique({
@@ -407,7 +407,7 @@ machinesRouter.put('/:id', requirePermission('production:write'), validateBody(u
 // ========================================
 machinesRouter.patch('/:id/status', requirePermission('production:write'), validateBody(updateStatusSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { status, notes } = req.body;
 
     const existing = await req.prisma!.machine.findUnique({
@@ -466,7 +466,7 @@ machinesRouter.patch('/:id/status', requirePermission('production:write'), valid
 // ========================================
 machinesRouter.post('/:id/schedule-maintenance', requirePermission('production:write'), validateBody(scheduleMaintSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { nextMaintenanceAt } = req.body;
 
     const existing = await req.prisma!.machine.findUnique({
@@ -497,7 +497,7 @@ machinesRouter.post('/:id/schedule-maintenance', requirePermission('production:w
 // ========================================
 machinesRouter.post('/:id/complete-maintenance', requirePermission('production:write'), validateBody(completeMaintSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { notes, nextMaintenanceAt } = req.body;
 
     const existing = await req.prisma!.machine.findUnique({
@@ -541,7 +541,7 @@ machinesRouter.post('/:id/complete-maintenance', requirePermission('production:w
 // ========================================
 machinesRouter.get('/:id/production-history', requirePermission('production:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { startDate, endDate, limit = '50' } = req.query;
 
     const where: any = { machineId: id };
@@ -560,8 +560,8 @@ machinesRouter.get('/:id/production-history', requirePermission('production:read
         shift: {
           select: {
             id: true,
-            shiftNumber: true,
-            date: true,
+            name: true,
+            code: true,
           }
         }
       }
@@ -570,7 +570,7 @@ machinesRouter.get('/:id/production-history', requirePermission('production:read
     // Calculate summary
     const summary = {
       totalRolls: logs.reduce((sum, l) => sum + (l.rollsProduced || 0), 0),
-      totalWeight: logs.reduce((sum, l) => sum + (Number(l.totalWeight) || 0), 0),
+      totalWeight: logs.reduce((sum, l) => sum + (Number(l.actualWeight) || 0), 0),
       daysActive: new Set(logs.map(l => l.createdAt.toISOString().split('T')[0])).size,
     };
 
@@ -585,7 +585,7 @@ machinesRouter.get('/:id/production-history', requirePermission('production:read
 // ========================================
 machinesRouter.get('/:id/downtime-history', requirePermission('production:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { startDate, endDate, limit = '50' } = req.query;
 
     const where: any = { machineId: id };
@@ -604,7 +604,7 @@ machinesRouter.get('/:id/downtime-history', requirePermission('production:read')
 
     // Calculate total downtime
     const totalDowntimeMinutes = logs.reduce((sum, l) => {
-      if (l.duration) return sum + l.duration;
+      if (l.durationMinutes) return sum + l.durationMinutes;
       if (l.endTime) {
         return sum + Math.round((new Date(l.endTime).getTime() - new Date(l.startTime).getTime()) / 60000);
       }
@@ -629,7 +629,7 @@ machinesRouter.get('/:id/downtime-history', requirePermission('production:read')
 // ========================================
 machinesRouter.delete('/:id', requirePermission('production:write'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     const existing = await req.prisma!.machine.findUnique({
       where: { id },

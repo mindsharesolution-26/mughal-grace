@@ -100,7 +100,7 @@ export const tenantMiddleware = async (
       throw AppError.notFound('Tenant');
     }
 
-    const tenantData = tenant[0];
+    const tenantData = tenant[0]!;
 
     if (tenantData.status !== 'ACTIVE') {
       throw AppError.forbidden(`Tenant is ${tenantData.status.toLowerCase()}`);

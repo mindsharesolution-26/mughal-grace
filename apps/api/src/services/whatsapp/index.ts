@@ -19,7 +19,7 @@ export type {
 } from './client';
 
 export type {
-  NLUResult,
+  ParseResult,
   Intent,
 } from './nlu';
 

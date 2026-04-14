@@ -8,7 +8,7 @@ import { AppError } from '../middleware/error-handler';
 import { yarnLedgerRouter } from './yarn-ledger.routes';
 import { yarnOutwardRouter } from './yarn-outward.routes';
 
-export const yarnRouter = Router();
+export const yarnRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 yarnRouter.use(authMiddleware);
@@ -672,7 +672,7 @@ yarnRouter.get('/boxes/:id', requirePermission('yarn:read'), validateParams(idPa
         yarnType: true,
         cones: {
           include: {
-            assignedMachine: { select: { id: true, code: true, name: true } },
+            machine: { select: { id: true, machineNumber: true, name: true } },
           },
         },
         payOrder: { select: { id: true, orderNumber: true, status: true } },
@@ -1057,7 +1057,9 @@ const generateBlendSummary = async (prisma: any, yarnTypes: { yarnTypeId: number
     select: { id: true, name: true, brandName: true, color: true },
   });
 
-  const typeMap = new Map(types.map((t: any) => [t.id, t]));
+  const typeMap = new Map<number, { id: number; name: string; brandName: string; color: string }>(
+    types.map((t: any) => [t.id, t])
+  );
   const summary = yarnTypes
     .map(yt => {
       const type = typeMap.get(yt.yarnTypeId);

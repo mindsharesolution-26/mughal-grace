@@ -15,13 +15,13 @@ const generateTokens = (payload: Omit<TokenPayload, 'type'>) => {
   const accessToken = jwt.sign(
     { ...payload, type: 'access' },
     config.jwt.secret,
-    { expiresIn: config.jwt.accessExpiry }
+    { expiresIn: config.jwt.accessExpiry } as jwt.SignOptions
   );
 
   const refreshToken = jwt.sign(
     { userId: payload.userId, tenantId: payload.tenantId, type: 'refresh' },
     config.jwt.secret,
-    { expiresIn: config.jwt.refreshExpiry }
+    { expiresIn: config.jwt.refreshExpiry } as jwt.SignOptions
   );
 
   return { accessToken, refreshToken };
@@ -86,7 +86,7 @@ export const authController = {
           RETURNING id
         `;
 
-        const tenantId = tenant[0].id;
+        const tenantId = tenant[0]!.id;
 
         // Create owner user
         const user = await tx.$queryRaw<Array<{ id: number }>>`
@@ -95,7 +95,7 @@ export const authController = {
           RETURNING id
         `;
 
-        return { tenantId, userId: user[0].id };
+        return { tenantId, userId: user[0]!.id };
       });
 
       // Generate tokens
@@ -159,7 +159,7 @@ export const authController = {
         throw AppError.unauthorized('Invalid email or password');
       }
 
-      const user = users[0];
+      const user = users[0]!;
 
       if (!user.is_active) {
         throw AppError.forbidden('Your account has been deactivated');
@@ -176,7 +176,7 @@ export const authController = {
         SELECT status FROM "public"."tenants" WHERE id = ${user.tenant_id}
       `;
 
-      if (tenants.length === 0 || tenants[0].status !== 'ACTIVE') {
+      if (tenants.length === 0 || tenants[0]!.status !== 'ACTIVE') {
         throw AppError.forbidden('Your organization is not active');
       }
 
@@ -266,7 +266,7 @@ export const authController = {
         throw AppError.unauthorized('User not found');
       }
 
-      const user = users[0];
+      const user = users[0]!;
 
       if (!user.is_active) {
         throw AppError.forbidden('Account deactivated');
@@ -328,7 +328,7 @@ export const authController = {
         throw AppError.notFound('User');
       }
 
-      const userData = users[0];
+      const userData = users[0]!;
 
       res.json({
         user: {
@@ -364,7 +364,7 @@ export const authController = {
   // Reset password
   async resetPassword(req: Request, res: Response, next: NextFunction) {
     try {
-      const { token, password } = req.body;
+      const { token, password: _password } = req.body;
 
       // TODO: Implement password reset with token verification
       logger.info(`Password reset attempted with token: ${token.substring(0, 10)}...`);

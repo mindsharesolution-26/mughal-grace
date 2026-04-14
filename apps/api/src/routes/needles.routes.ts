@@ -6,7 +6,7 @@ import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 
-export const needlesRouter = Router();
+export const needlesRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 needlesRouter.use(authMiddleware);

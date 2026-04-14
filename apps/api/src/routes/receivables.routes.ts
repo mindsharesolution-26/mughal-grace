@@ -7,7 +7,7 @@ import { validateBody, validateParams, validateQuery } from '../middleware/valid
 import { AppError } from '../middleware/error-handler';
 import { LedgerEntryType, MaterialTransactionType } from '@prisma/client';
 
-export const receivablesRouter = Router();
+export const receivablesRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 receivablesRouter.use(authMiddleware);

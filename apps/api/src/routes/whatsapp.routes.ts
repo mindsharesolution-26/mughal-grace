@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { whatsappController } from '../controllers/whatsapp.controller';
 
-const router = Router();
+const router: Router = Router();
 
 /**
  * @route GET /api/v1/whatsapp/webhook

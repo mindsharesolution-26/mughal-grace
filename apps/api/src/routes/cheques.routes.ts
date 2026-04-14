@@ -7,7 +7,7 @@ import { validateBody, validateParams, validateQuery } from '../middleware/valid
 import { AppError } from '../middleware/error-handler';
 import { ChequeType, ChequeStatus, VendorType, VendorLedgerType, LedgerEntryType } from '@prisma/client';
 
-export const chequesRouter = Router();
+export const chequesRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 chequesRouter.use(authMiddleware);

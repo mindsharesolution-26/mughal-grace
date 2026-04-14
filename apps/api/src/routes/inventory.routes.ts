@@ -6,7 +6,7 @@ import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams, validateQuery } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
 
-export const inventoryRouter = Router();
+export const inventoryRouter: Router = Router();
 
 // Apply authentication and tenant middleware
 inventoryRouter.use(authMiddleware);
