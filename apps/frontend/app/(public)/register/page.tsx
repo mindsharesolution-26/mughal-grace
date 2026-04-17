@@ -48,12 +48,11 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       await api.post('/auth/register', {
-        factoryName: data.factoryName,
-        ownerName: data.fullName,
-        ownerEmail: data.email,
-        ownerPhone: data.phone,
+        email: data.email,
         password: data.password,
-        totalMachines: data.totalMachines,
+        fullName: data.fullName,
+        companyName: data.factoryName,
+        phone: data.phone,
       });
       showToast('success', 'Account created! Please check your email to verify.');
       router.push('/login');
