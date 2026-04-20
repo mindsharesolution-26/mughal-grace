@@ -16,12 +16,8 @@ import {
   WifiOff,
   TrendingUp,
   Clock,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
   ScrollText,
   Loader2,
-  Hash,
   RefreshCw,
 } from 'lucide-react';
 
@@ -63,9 +59,6 @@ export default function ProductionPage() {
   const { showToast } = useToast();
   const [showMobilePanel, setShowMobilePanel] = useState(false);
 
-  // Date selection
-  const [selectedDate, setSelectedDate] = useState(new Date());
-
   // Production logs data
   const [logs, setLogs] = useState<ProductionLog[]>([]);
   const [summary, setSummary] = useState<ProductionSummary | null>(null);
@@ -81,71 +74,34 @@ export default function ProductionPage() {
   // Simulate weighing machine connection
   const [isWeighingConnected, setIsWeighingConnected] = useState(true);
 
-  // Format date for display
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+  // Stats from mock data (keeping original overview stats)
+  const stats = {
+    running: 38,
+    idle: 4,
+    maintenance: 5,
+    down: 3,
   };
-
-  // Format date for API
-  const formatDateForApi = (date: Date) => {
-    return date.toISOString().split('T')[0];
-  };
-
-  // Check if selected date is today
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    );
-  };
-
-  // Navigate dates
-  const goToPreviousDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() - 1);
-    setSelectedDate(newDate);
-  };
-
-  const goToNextDay = () => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + 1);
-    if (newDate <= new Date()) {
-      setSelectedDate(newDate);
-    }
-  };
-
-  const goToToday = () => {
-    setSelectedDate(new Date());
-  };
+  const totalProduction = summary?.totalWeight || 0;
+  const totalRolls = summary?.totalRolls || 0;
 
   // Load production logs
   const loadProductionLogs = async () => {
     setIsLoadingLogs(true);
     try {
-      const data = await productsApi.getProductionLogs({
-        date: formatDateForApi(selectedDate),
-      });
+      const data = await productsApi.getProductionLogs();
       setLogs(data.logs);
       setSummary(data.summary);
     } catch (error) {
       console.error('Failed to load production logs:', error);
-      showToast('error', 'Failed to load production logs');
     } finally {
       setIsLoadingLogs(false);
     }
   };
 
-  // Load logs when date changes
+  // Load logs on mount
   useEffect(() => {
     loadProductionLogs();
-  }, [selectedDate]);
+  }, []);
 
   // Simulate weight detection
   const simulateWeightDetection = () => {
@@ -187,10 +143,8 @@ export default function ProductionPage() {
       setWeight('');
       setRollNumber('');
 
-      // Reload logs if viewing today
-      if (isToday(selectedDate)) {
-        loadProductionLogs();
-      }
+      // Reload logs
+      loadProductionLogs();
     } catch (error: any) {
       showToast('error', error.response?.data?.error || 'Failed to log production');
     } finally {
@@ -325,7 +279,7 @@ export default function ProductionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-white">Production</h1>
-          <p className="text-neutral-400 mt-1">Daily production output and logging</p>
+          <p className="text-neutral-400 mt-1">Monitor machines and log production</p>
         </div>
         <Button className="lg:hidden" onClick={() => setShowMobilePanel(true)}>
           <Package className="w-4 h-4 mr-2" />
@@ -335,121 +289,51 @@ export default function ProductionPage() {
 
       {/* Main Layout */}
       <div className="flex gap-6 h-[calc(100%-5rem)]">
-        {/* Left Side - Production Logs */}
+        {/* Left Side - Overview */}
         <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-          {/* Date Navigation & Summary */}
-          <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
-            {/* Date Selector */}
-            <div className="flex items-center justify-between mb-6">
-              <button
-                onClick={goToPreviousDay}
-                className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <Calendar className="w-5 h-5 text-primary-400" />
-                  <h2 className="text-lg font-semibold text-white">
-                    {isToday(selectedDate) ? "Today's Production" : formatDate(selectedDate)}
-                  </h2>
-                </div>
-                {!isToday(selectedDate) && (
-                  <button
-                    onClick={goToToday}
-                    className="text-xs text-primary-400 hover:text-primary-300"
-                  >
-                    Go to today
-                  </button>
-                )}
+          {/* Summary Stats - KEEPING ORIGINAL */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-2xl border border-emerald-500/20 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <p className="text-sm text-emerald-400">Today's Total</p>
               </div>
-
-              <button
-                onClick={goToNextDay}
-                disabled={isToday(selectedDate)}
-                className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
+              <p className="text-3xl font-bold text-white">{totalProduction}</p>
+              <p className="text-sm text-neutral-400">kg produced</p>
             </div>
-
-            {/* Summary Stats */}
-            {summary && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-xl border border-emerald-500/20 p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
-                    <p className="text-xs text-emerald-400">Total Output</p>
-                  </div>
-                  <p className="text-2xl font-bold text-white">{summary.totalWeight}</p>
-                  <p className="text-xs text-neutral-400">kg produced</p>
-                </div>
-
-                <div className="bg-factory-gray rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ScrollText className="w-4 h-4 text-primary-400" />
-                    <p className="text-xs text-neutral-400">Total Rolls</p>
-                  </div>
-                  <p className="text-2xl font-bold text-white">{summary.totalRolls}</p>
-                  <p className="text-xs text-neutral-400">completed</p>
-                </div>
-
-                <div className="bg-factory-gray rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Package className="w-4 h-4 text-primary-400" />
-                    <p className="text-xs text-neutral-400">Products</p>
-                  </div>
-                  <p className="text-2xl font-bold text-white">{summary.byProduct.length}</p>
-                  <p className="text-xs text-neutral-400">different types</p>
-                </div>
-
-                <div className="bg-factory-gray rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className="w-4 h-4 text-primary-400" />
-                    <p className="text-xs text-neutral-400">Avg per Roll</p>
-                  </div>
-                  <p className="text-2xl font-bold text-white">
-                    {summary.totalRolls > 0
-                      ? (summary.totalWeight / summary.totalRolls).toFixed(1)
-                      : '0'}
-                  </p>
-                  <p className="text-xs text-neutral-400">kg / roll</p>
-                </div>
+            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ScrollText className="w-4 h-4 text-primary-400" />
+                <p className="text-sm text-neutral-400">Rolls</p>
               </div>
-            )}
+              <p className="text-3xl font-bold text-white">{totalRolls}</p>
+              <p className="text-sm text-neutral-400">completed</p>
+            </div>
+            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Factory className="w-4 h-4 text-success" />
+                <p className="text-sm text-neutral-400">Running</p>
+              </div>
+              <p className="text-3xl font-bold text-success">{stats.running}</p>
+              <p className="text-sm text-neutral-400">machines</p>
+            </div>
+            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-warning" />
+                <p className="text-sm text-neutral-400">Idle/Down</p>
+              </div>
+              <p className="text-3xl font-bold text-warning">{stats.idle + stats.down}</p>
+              <p className="text-sm text-neutral-400">machines</p>
+            </div>
           </div>
 
-          {/* Product Summary */}
-          {summary && summary.byProduct.length > 0 && (
-            <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
-              <h3 className="text-lg font-semibold text-white mb-4">Production by Product</h3>
-              <div className="space-y-3">
-                {summary.byProduct.map((product) => (
-                  <div
-                    key={product.id}
-                    className="flex items-center justify-between p-3 bg-factory-gray rounded-xl"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium truncate">{product.name}</p>
-                      <p className="text-xs text-primary-400 font-mono">
-                        {product.articleNumber || 'No article'}
-                      </p>
-                    </div>
-                    <div className="text-right ml-4">
-                      <p className="text-lg font-bold text-white">{product.weight} kg</p>
-                      <p className="text-xs text-neutral-400">{product.rolls} rolls</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Production Logs Table */}
+          {/* Daily Production - REPLACED MACHINE STATUS */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Production Log</h3>
+              <div>
+                <h2 className="text-lg font-semibold text-white">Today's Production</h2>
+                <p className="text-sm text-neutral-400">Daily production log</p>
+              </div>
               <Button variant="ghost" size="sm" onClick={loadProductionLogs} disabled={isLoadingLogs}>
                 <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingLogs ? 'animate-spin' : ''}`} />
                 Refresh
@@ -463,12 +347,8 @@ export default function ProductionPage() {
             ) : logs.length === 0 ? (
               <div className="text-center py-12">
                 <ScrollText className="w-12 h-12 mx-auto mb-3 text-neutral-600" />
-                <p className="text-neutral-400">No production recorded</p>
-                <p className="text-sm text-neutral-500">
-                  {isToday(selectedDate)
-                    ? 'Log a roll to get started'
-                    : 'No production was logged on this day'}
-                </p>
+                <p className="text-neutral-400">No production recorded today</p>
+                <p className="text-sm text-neutral-500">Log a roll to get started</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -476,7 +356,6 @@ export default function ProductionPage() {
                   <thead>
                     <tr className="text-left text-sm text-neutral-400 border-b border-factory-border">
                       <th className="pb-3 font-medium">Time</th>
-                      <th className="pb-3 font-medium">Roll #</th>
                       <th className="pb-3 font-medium">Product</th>
                       <th className="pb-3 font-medium">Machine</th>
                       <th className="pb-3 font-medium text-right">Weight</th>
@@ -486,21 +365,16 @@ export default function ProductionPage() {
                     {logs.map((log) => (
                       <tr
                         key={log.id}
-                        className="border-b border-factory-border/50 hover:bg-factory-gray/50"
+                        className="border-b border-factory-border/50 hover:bg-factory-gray/50 cursor-pointer"
                       >
                         <td className="py-3 text-neutral-400">
                           {formatTime(log.createdAt)}
                         </td>
                         <td className="py-3">
-                          <span className="font-mono text-primary-400 text-xs">
-                            {log.rollNumber || '-'}
-                          </span>
-                        </td>
-                        <td className="py-3">
                           <div>
                             <p className="text-white">{log.product.name}</p>
                             <p className="text-xs text-neutral-500 font-mono">
-                              {log.product.articleNumber}
+                              {log.product.articleNumber || '-'}
                             </p>
                           </div>
                         </td>
