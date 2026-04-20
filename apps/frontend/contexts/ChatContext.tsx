@@ -189,19 +189,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     sendMessage(suggestion);
   }, [sendMessage]);
 
-  // Load initial suggestions on mount
+  // Load suggestions when chat opens (lazy load to avoid 401 issues on page load)
   useEffect(() => {
+    if (!state.isOpen) return;
+
     const loadSuggestions = async () => {
       try {
         const suggestions = await chatApi.getSuggestions();
         setState((prev) => ({ ...prev, suggestions }));
       } catch (error) {
         // Silently fail - use default suggestions
+        console.debug('Failed to load chat suggestions:', error);
       }
     };
 
     loadSuggestions();
-  }, []);
+  }, [state.isOpen]);
 
   const value: ChatContextType = {
     ...state,
