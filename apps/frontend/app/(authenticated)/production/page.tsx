@@ -8,10 +8,7 @@ import { productsApi } from '@/lib/api/products';
 import { ProductFinder } from '@/components/organisms/ProductFinder';
 import {
   Factory,
-  Play,
-  Pause,
-  Wrench,
-  AlertTriangle,
+  Package,
   X,
   Scale,
   CheckCircle,
@@ -19,60 +16,60 @@ import {
   WifiOff,
   TrendingUp,
   Clock,
-  Package,
+  Calendar,
+  ChevronLeft,
   ChevronRight,
+  ScrollText,
+  Loader2,
+  Hash,
+  RefreshCw,
 } from 'lucide-react';
 
-// Mock machine data - deterministic values
+// Mock machine data for the dropdown
 const mockMachines = Array.from({ length: 50 }, (_, i) => ({
   id: i + 1,
   number: i + 1,
-  name: `Machine ${i + 1}`,
-  status: i < 38 ? 'RUNNING' : i < 42 ? 'IDLE' : i < 47 ? 'MAINTENANCE' : 'DOWN',
-  currentOperator: i < 38 ? `Operator ${(i % 10) + 1}` : null,
-  fabricType: i < 38 ? ['Single Jersey', 'Rib', 'Interlock'][i % 3] : null,
-  materialName: i < 38 ? ['Cotton 100%', 'Polyester Blend', 'Cotton/Lycra'][i % 3] : null,
-  colorName: i < 38 ? ['White', 'Black', 'Grey', 'Navy', 'Red'][i % 5] : null,
-  shiftProduction: i < 38 ? 30 + ((i * 7) % 50) : 0,
-  efficiency: i < 38 ? 75 + ((i * 3) % 20) : 0,
-  rollsProduced: i < 38 ? 5 + (i % 8) : 0,
+  status: i < 38 ? 'RUNNING' : 'IDLE',
   currentProduct: i < 38 ? `Product ${100 + (i % 20)}` : null,
-  articleNumber: i < 38 ? `ART-${1000 + (i % 50)}` : null,
-  startTime: i < 38 ? '06:00 AM' : null,
-  lastRollTime: i < 38 ? `${8 + (i % 4)}:${(i * 5) % 60 < 10 ? '0' : ''}${(i * 5) % 60} AM` : null,
 }));
 
-const statusConfig = {
-  RUNNING: {
-    color: 'bg-success/20 text-success border-success/30',
-    bg: 'bg-success',
-    icon: Play,
-    label: 'Running',
-  },
-  IDLE: {
-    color: 'bg-warning/20 text-warning border-warning/30',
-    bg: 'bg-warning',
-    icon: Pause,
-    label: 'Idle',
-  },
-  MAINTENANCE: {
-    color: 'bg-primary-500/20 text-primary-400 border-primary-500/30',
-    bg: 'bg-primary-500',
-    icon: Wrench,
-    label: 'Maintenance',
-  },
-  DOWN: {
-    color: 'bg-error/20 text-error border-error/30',
-    bg: 'bg-error',
-    icon: AlertTriangle,
-    label: 'Down',
-  },
-};
+interface ProductionLog {
+  id: number;
+  rollNumber: string | null;
+  weight: number;
+  machine: string | null;
+  product: {
+    id: number;
+    name: string;
+    articleNumber: string | null;
+    qrCode: string;
+  };
+  createdAt: string;
+}
+
+interface ProductionSummary {
+  totalWeight: number;
+  totalRolls: number;
+  byProduct: Array<{
+    id: number;
+    name: string;
+    articleNumber: string | null;
+    weight: number;
+    rolls: number;
+  }>;
+}
 
 export default function ProductionPage() {
   const { showToast } = useToast();
-  const [selectedMachine, setSelectedMachine] = useState<typeof mockMachines[0] | null>(null);
   const [showMobilePanel, setShowMobilePanel] = useState(false);
+
+  // Date selection
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // Production logs data
+  const [logs, setLogs] = useState<ProductionLog[]>([]);
+  const [summary, setSummary] = useState<ProductionSummary | null>(null);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(true);
 
   // Production log state
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -84,19 +81,71 @@ export default function ProductionPage() {
   // Simulate weighing machine connection
   const [isWeighingConnected, setIsWeighingConnected] = useState(true);
 
-  // Calculate stats
-  const stats = {
-    running: mockMachines.filter((m) => m.status === 'RUNNING').length,
-    idle: mockMachines.filter((m) => m.status === 'IDLE').length,
-    maintenance: mockMachines.filter((m) => m.status === 'MAINTENANCE').length,
-    down: mockMachines.filter((m) => m.status === 'DOWN').length,
+  // Format date for display
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
   };
 
-  const totalProduction = mockMachines.reduce((sum, m) => sum + m.shiftProduction, 0);
-  const avgEfficiency = Math.round(
-    mockMachines.filter((m) => m.status === 'RUNNING').reduce((sum, m) => sum + m.efficiency, 0) / stats.running
-  );
-  const totalRolls = mockMachines.reduce((sum, m) => sum + m.rollsProduced, 0);
+  // Format date for API
+  const formatDateForApi = (date: Date) => {
+    return date.toISOString().split('T')[0];
+  };
+
+  // Check if selected date is today
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  };
+
+  // Navigate dates
+  const goToPreviousDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() - 1);
+    setSelectedDate(newDate);
+  };
+
+  const goToNextDay = () => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() + 1);
+    if (newDate <= new Date()) {
+      setSelectedDate(newDate);
+    }
+  };
+
+  const goToToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  // Load production logs
+  const loadProductionLogs = async () => {
+    setIsLoadingLogs(true);
+    try {
+      const data = await productsApi.getProductionLogs({
+        date: formatDateForApi(selectedDate),
+      });
+      setLogs(data.logs);
+      setSummary(data.summary);
+    } catch (error) {
+      console.error('Failed to load production logs:', error);
+      showToast('error', 'Failed to load production logs');
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  // Load logs when date changes
+  useEffect(() => {
+    loadProductionLogs();
+  }, [selectedDate]);
 
   // Simulate weight detection
   const simulateWeightDetection = () => {
@@ -137,7 +186,11 @@ export default function ProductionPage() {
       setSelectedProduct(null);
       setWeight('');
       setRollNumber('');
-      // Keep machine selected for continuous production
+
+      // Reload logs if viewing today
+      if (isToday(selectedDate)) {
+        loadProductionLogs();
+      }
     } catch (error: any) {
       showToast('error', error.response?.data?.error || 'Failed to log production');
     } finally {
@@ -145,104 +198,12 @@ export default function ProductionPage() {
     }
   };
 
-  // Machine popup
-  const MachinePopup = () => {
-    if (!selectedMachine) return null;
-
-    const config = statusConfig[selectedMachine.status as keyof typeof statusConfig];
-    const StatusIcon = config.icon;
-
-    return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setSelectedMachine(null)}>
-        <div className="bg-factory-dark rounded-2xl border border-factory-border w-full max-w-md animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-          {/* Header */}
-          <div className="p-5 border-b border-factory-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl ${config.bg}/20 flex items-center justify-center`}>
-                <StatusIcon className={`w-5 h-5 ${config.bg === 'bg-success' ? 'text-success' : config.bg === 'bg-warning' ? 'text-warning' : config.bg === 'bg-primary-500' ? 'text-primary-400' : 'text-error'}`} />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">Machine #{selectedMachine.number}</h2>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${config.color}`}>{config.label}</span>
-              </div>
-            </div>
-            <button onClick={() => setSelectedMachine(null)} className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div className="p-5">
-            {selectedMachine.status === 'RUNNING' ? (
-              <div className="space-y-4">
-                {/* Production Stats */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-xl p-4 border border-emerald-500/20">
-                    <p className="text-xs text-emerald-400">Production</p>
-                    <p className="text-2xl font-bold text-white">{selectedMachine.shiftProduction} <span className="text-sm text-neutral-400">kg</span></p>
-                  </div>
-                  <div className="bg-factory-gray rounded-xl p-4">
-                    <p className="text-xs text-neutral-400">Rolls</p>
-                    <p className="text-2xl font-bold text-white">{selectedMachine.rollsProduced}</p>
-                  </div>
-                </div>
-
-                {/* Efficiency */}
-                <div className="bg-factory-gray rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-neutral-400">Efficiency</p>
-                    <span className={`text-sm font-semibold ${selectedMachine.efficiency >= 85 ? 'text-success' : selectedMachine.efficiency >= 70 ? 'text-warning' : 'text-error'}`}>
-                      {selectedMachine.efficiency}%
-                    </span>
-                  </div>
-                  <div className="h-2 bg-factory-border rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${selectedMachine.efficiency >= 85 ? 'bg-success' : selectedMachine.efficiency >= 70 ? 'bg-warning' : 'bg-error'}`}
-                      style={{ width: `${selectedMachine.efficiency}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Details */}
-                <div className="space-y-2 text-sm">
-                  {[
-                    { label: 'Operator', value: selectedMachine.currentOperator },
-                    { label: 'Product', value: selectedMachine.currentProduct },
-                    { label: 'Article', value: selectedMachine.articleNumber, mono: true },
-                    { label: 'Fabric', value: selectedMachine.fabricType },
-                    { label: 'Material', value: selectedMachine.materialName },
-                    { label: 'Color', value: selectedMachine.colorName },
-                    { label: 'Shift Start', value: selectedMachine.startTime },
-                    { label: 'Last Roll', value: selectedMachine.lastRollTime },
-                  ].map((item) => (
-                    <div key={item.label} className="flex justify-between py-1.5 border-b border-factory-border/50 last:border-0">
-                      <span className="text-neutral-400">{item.label}</span>
-                      <span className={`text-white ${item.mono ? 'font-mono text-primary-400' : ''}`}>{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <div className={`w-16 h-16 rounded-2xl ${config.bg}/10 flex items-center justify-center mx-auto mb-4`}>
-                  <StatusIcon className={`w-8 h-8 ${config.bg === 'bg-warning' ? 'text-warning' : config.bg === 'bg-primary-500' ? 'text-primary-400' : 'text-error'}`} />
-                </div>
-                <p className="text-neutral-400">
-                  {selectedMachine.status === 'IDLE' && 'Machine is idle - no active production'}
-                  {selectedMachine.status === 'MAINTENANCE' && 'Machine is under scheduled maintenance'}
-                  {selectedMachine.status === 'DOWN' && 'Machine is down - requires immediate attention'}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div className="p-5 border-t border-factory-border">
-            <Button className="w-full" onClick={() => setSelectedMachine(null)}>Close</Button>
-          </div>
-        </div>
-      </div>
-    );
+  // Format time
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   // Log Roll Panel Component
@@ -364,7 +325,7 @@ export default function ProductionPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-white">Production</h1>
-          <p className="text-neutral-400 mt-1">Monitor machines and log production output</p>
+          <p className="text-neutral-400 mt-1">Daily production output and logging</p>
         </div>
         <Button className="lg:hidden" onClick={() => setShowMobilePanel(true)}>
           <Package className="w-4 h-4 mr-2" />
@@ -374,103 +335,188 @@ export default function ProductionPage() {
 
       {/* Main Layout */}
       <div className="flex gap-6 h-[calc(100%-5rem)]">
-        {/* Left Side - Overview */}
+        {/* Left Side - Production Logs */}
         <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-          {/* Summary Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-2xl border border-emerald-500/20 p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-                <p className="text-sm text-emerald-400">Today's Output</p>
-              </div>
-              <p className="text-3xl font-bold text-white">{totalProduction}</p>
-              <p className="text-sm text-neutral-400">kg produced</p>
-            </div>
-
-            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Package className="w-4 h-4 text-primary-400" />
-                <p className="text-sm text-neutral-400">Rolls</p>
-              </div>
-              <p className="text-3xl font-bold text-white">{totalRolls}</p>
-              <p className="text-sm text-neutral-400">completed</p>
-            </div>
-
-            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-primary-400" />
-                <p className="text-sm text-neutral-400">Efficiency</p>
-              </div>
-              <p className={`text-3xl font-bold ${avgEfficiency >= 85 ? 'text-success' : avgEfficiency >= 70 ? 'text-warning' : 'text-error'}`}>
-                {avgEfficiency}%
-              </p>
-              <p className="text-sm text-neutral-400">average</p>
-            </div>
-
-            <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Factory className="w-4 h-4 text-primary-400" />
-                <p className="text-sm text-neutral-400">Machines</p>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-bold text-success">{stats.running}</p>
-                <p className="text-lg text-neutral-500">/ 50</p>
-              </div>
-              <p className="text-sm text-neutral-400">running</p>
-            </div>
-          </div>
-
-          {/* Machine Grid */}
+          {/* Date Navigation & Summary */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Machine Status</h2>
-                <p className="text-sm text-neutral-400">Click any machine for details</p>
-              </div>
-            </div>
+            {/* Date Selector */}
+            <div className="flex items-center justify-between mb-6">
+              <button
+                onClick={goToPreviousDay}
+                className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
 
-            <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
-              {mockMachines.map((machine) => {
-                const config = statusConfig[machine.status as keyof typeof statusConfig];
-                return (
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <Calendar className="w-5 h-5 text-primary-400" />
+                  <h2 className="text-lg font-semibold text-white">
+                    {isToday(selectedDate) ? "Today's Production" : formatDate(selectedDate)}
+                  </h2>
+                </div>
+                {!isToday(selectedDate) && (
                   <button
-                    key={machine.id}
-                    onClick={() => setSelectedMachine(machine)}
-                    className={`aspect-square rounded-lg flex flex-col items-center justify-center text-xs font-medium border transition-all hover:scale-105 cursor-pointer ${config.color}`}
+                    onClick={goToToday}
+                    className="text-xs text-primary-400 hover:text-primary-300"
                   >
-                    <span className="font-bold">{machine.number}</span>
-                    {machine.status === 'RUNNING' && (
-                      <span className="text-[10px] opacity-80">{machine.shiftProduction}kg</span>
-                    )}
+                    Go to today
                   </button>
-                );
-              })}
+                )}
+              </div>
+
+              <button
+                onClick={goToNextDay}
+                disabled={isToday(selectedDate)}
+                className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Legend */}
-            <div className="flex flex-wrap gap-4 mt-5 pt-4 border-t border-factory-border text-sm text-neutral-400">
-              {Object.entries(statusConfig).map(([key, config]) => (
-                <span key={key} className="flex items-center gap-2">
-                  <span className={`w-3 h-3 rounded-full ${config.bg}`} />
-                  {config.label} ({stats[key.toLowerCase() as keyof typeof stats]})
-                </span>
-              ))}
-            </div>
+            {/* Summary Stats */}
+            {summary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 rounded-xl border border-emerald-500/20 p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                    <p className="text-xs text-emerald-400">Total Output</p>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{summary.totalWeight}</p>
+                  <p className="text-xs text-neutral-400">kg produced</p>
+                </div>
+
+                <div className="bg-factory-gray rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ScrollText className="w-4 h-4 text-primary-400" />
+                    <p className="text-xs text-neutral-400">Total Rolls</p>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{summary.totalRolls}</p>
+                  <p className="text-xs text-neutral-400">completed</p>
+                </div>
+
+                <div className="bg-factory-gray rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Package className="w-4 h-4 text-primary-400" />
+                    <p className="text-xs text-neutral-400">Products</p>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{summary.byProduct.length}</p>
+                  <p className="text-xs text-neutral-400">different types</p>
+                </div>
+
+                <div className="bg-factory-gray rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-4 h-4 text-primary-400" />
+                    <p className="text-xs text-neutral-400">Avg per Roll</p>
+                  </div>
+                  <p className="text-2xl font-bold text-white">
+                    {summary.totalRolls > 0
+                      ? (summary.totalWeight / summary.totalRolls).toFixed(1)
+                      : '0'}
+                  </p>
+                  <p className="text-xs text-neutral-400">kg / roll</p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Recent Production Logs - Placeholder */}
+          {/* Product Summary */}
+          {summary && summary.byProduct.length > 0 && (
+            <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
+              <h3 className="text-lg font-semibold text-white mb-4">Production by Product</h3>
+              <div className="space-y-3">
+                {summary.byProduct.map((product) => (
+                  <div
+                    key={product.id}
+                    className="flex items-center justify-between p-3 bg-factory-gray rounded-xl"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-medium truncate">{product.name}</p>
+                      <p className="text-xs text-primary-400 font-mono">
+                        {product.articleNumber || 'No article'}
+                      </p>
+                    </div>
+                    <div className="text-right ml-4">
+                      <p className="text-lg font-bold text-white">{product.weight} kg</p>
+                      <p className="text-xs text-neutral-400">{product.rolls} rolls</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Production Logs Table */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-5">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">Recent Production</h2>
-              <Button variant="ghost" size="sm">
-                View All <ChevronRight className="w-4 h-4 ml-1" />
+              <h3 className="text-lg font-semibold text-white">Production Log</h3>
+              <Button variant="ghost" size="sm" onClick={loadProductionLogs} disabled={isLoadingLogs}>
+                <RefreshCw className={`w-4 h-4 mr-1 ${isLoadingLogs ? 'animate-spin' : ''}`} />
+                Refresh
               </Button>
             </div>
-            <div className="text-center py-8 text-neutral-500">
-              <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>Production logs will appear here</p>
-              <p className="text-sm">Log a roll to get started</p>
-            </div>
+
+            {isLoadingLogs ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-12">
+                <ScrollText className="w-12 h-12 mx-auto mb-3 text-neutral-600" />
+                <p className="text-neutral-400">No production recorded</p>
+                <p className="text-sm text-neutral-500">
+                  {isToday(selectedDate)
+                    ? 'Log a roll to get started'
+                    : 'No production was logged on this day'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-neutral-400 border-b border-factory-border">
+                      <th className="pb-3 font-medium">Time</th>
+                      <th className="pb-3 font-medium">Roll #</th>
+                      <th className="pb-3 font-medium">Product</th>
+                      <th className="pb-3 font-medium">Machine</th>
+                      <th className="pb-3 font-medium text-right">Weight</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm">
+                    {logs.map((log) => (
+                      <tr
+                        key={log.id}
+                        className="border-b border-factory-border/50 hover:bg-factory-gray/50"
+                      >
+                        <td className="py-3 text-neutral-400">
+                          {formatTime(log.createdAt)}
+                        </td>
+                        <td className="py-3">
+                          <span className="font-mono text-primary-400 text-xs">
+                            {log.rollNumber || '-'}
+                          </span>
+                        </td>
+                        <td className="py-3">
+                          <div>
+                            <p className="text-white">{log.product.name}</p>
+                            <p className="text-xs text-neutral-500 font-mono">
+                              {log.product.articleNumber}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="py-3 text-neutral-300">
+                          {log.machine ? `#${log.machine}` : '-'}
+                        </td>
+                        <td className="py-3 text-right">
+                          <span className="text-white font-semibold">{log.weight}</span>
+                          <span className="text-neutral-400 ml-1">kg</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 
@@ -489,9 +535,6 @@ export default function ProductionPage() {
           </div>
         </div>
       )}
-
-      {/* Machine Popup */}
-      {selectedMachine && <MachinePopup />}
     </div>
   );
 }

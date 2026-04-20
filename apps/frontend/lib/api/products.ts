@@ -107,4 +107,37 @@ export const productsApi = {
     const response = await api.get<{ data: any }>(`/products/${productId}/ledger`, { params });
     return response.data.data;
   },
+
+  /**
+   * Get production logs (stock movements from production)
+   */
+  async getProductionLogs(params?: {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<{
+    logs: Array<{
+      id: number;
+      rollNumber: string | null;
+      weight: number;
+      machine: string | null;
+      product: { id: number; name: string; articleNumber: string | null; qrCode: string };
+      createdAt: string;
+    }>;
+    summary: {
+      totalWeight: number;
+      totalRolls: number;
+      byProduct: Array<{
+        id: number;
+        name: string;
+        articleNumber: string | null;
+        weight: number;
+        rolls: number;
+      }>;
+    };
+  }> {
+    const response = await api.get<{ data: any }>('/products/production-logs', { params });
+    return response.data.data;
+  },
 };
