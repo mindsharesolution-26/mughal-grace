@@ -16,6 +16,34 @@ function generateQRCode(): string {
   return `MG-${timestamp}-${random}`;
 }
 
+// Generate auto-incrementing article number
+async function generateArticleNumber(prisma: any): Promise<string> {
+  // Find the last product with an article number that starts with ART-
+  const lastProduct = await prisma.product.findFirst({
+    where: {
+      articleNumber: {
+        startsWith: 'ART-',
+      },
+    },
+    orderBy: {
+      articleNumber: 'desc',
+    },
+    select: {
+      articleNumber: true,
+    },
+  });
+
+  let nextNum = 1;
+  if (lastProduct && lastProduct.articleNumber) {
+    const match = lastProduct.articleNumber.match(/ART-(\d+)/);
+    if (match) {
+      nextNum = parseInt(match[1], 10) + 1;
+    }
+  }
+
+  return `ART-${String(nextNum).padStart(4, '0')}`;
+}
+
 // Apply authentication and tenant middleware
 productsRouter.use(authMiddleware);
 productsRouter.use(tenantMiddleware);
@@ -132,10 +160,13 @@ productsRouter.post('/', requirePermission('products:write'), validateBody(creat
     // Generate unique QR code
     const qrCode = generateQRCode();
 
+    // Auto-generate article number if not provided
+    const articleNumber = req.body.articleNumber || await generateArticleNumber(req.prisma!);
+
     const product = await req.prisma!.product.create({
       data: {
         name: req.body.name,
-        articleNumber: req.body.articleNumber || null,
+        articleNumber,
         qrCode,
         departmentId: req.body.departmentId || null,
         groupId: req.body.groupId || null,

@@ -50,6 +50,7 @@ import {
   User,
   List,
 } from 'lucide-react';
+import { ChatWidget } from '@/components/organisms/chat';
 
 interface NavItem {
   label: string;
@@ -372,6 +373,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Page content */}
         <main className="p-4 lg:p-6">{children}</main>
       </div>
+
+      {/* Chat Widget */}
+      <ChatWidget />
     </div>
   );
 }
