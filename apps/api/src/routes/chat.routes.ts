@@ -117,7 +117,7 @@ chatRouter.get(
   '/conversation/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const conversationId = parseInt(req.params.id);
+      const conversationId = parseInt(req.params.id as string);
 
       if (isNaN(conversationId)) {
         throw AppError.badRequest('Invalid conversation ID');
@@ -157,7 +157,7 @@ chatRouter.delete(
   '/conversation/:id',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const conversationId = parseInt(req.params.id);
+      const conversationId = parseInt(req.params.id as string);
 
       if (isNaN(conversationId)) {
         throw AppError.badRequest('Invalid conversation ID');
@@ -211,7 +211,7 @@ chatRouter.get(
 chatRouter.get(
   '/status',
   async (req: Request, res: Response) => {
-    const { AnthropicProvider } = await import('../services/ai');
+    const { AnthropicProvider } = await import('../services/ai/index.js');
 
     res.json({
       success: true,

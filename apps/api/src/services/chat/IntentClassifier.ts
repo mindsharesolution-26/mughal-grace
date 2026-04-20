@@ -275,7 +275,7 @@ class IntentClassifierClass {
     const prompt = getIntentClassificationPrompt(message);
 
     const result = await AnthropicProvider.simpleComplete(prompt, {
-      model: 'claude-3-haiku-20240307', // Use cheap model for classification
+      model: 'claude-3-5-haiku-latest', // Use cheap model for classification
       maxTokens: 50,
       temperature: 0,
     });
