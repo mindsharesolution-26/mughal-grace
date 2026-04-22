@@ -55,10 +55,11 @@ api.interceptors.response.use(
 
         const { accessToken } = response.data;
 
+        const isProduction = process.env.NODE_ENV === 'production';
         Cookies.set('access_token', accessToken, {
           expires: 1 / 96, // 15 minutes
-          secure: true, // Always use secure cookies
-          sameSite: 'strict', // Prevent CSRF
+          secure: isProduction,
+          sameSite: isProduction ? 'strict' : 'lax',
         });
 
         // Retry original request

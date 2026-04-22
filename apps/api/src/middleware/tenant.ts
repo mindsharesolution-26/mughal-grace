@@ -79,11 +79,67 @@ export const tenantMiddleware = async (
   try {
     const user = req.user;
 
-    if (!user?.tenantId) {
-      throw AppError.unauthorized('Tenant context required');
+    if (!user) {
+      throw AppError.unauthorized('Authentication required');
     }
 
     const adminPrisma = getAdminClient();
+
+    // SUPER_ADMIN special handling - can target specific tenant or use first available
+    if (user.role === 'SUPER_ADMIN') {
+      // Check if SUPER_ADMIN wants to target a specific tenant
+      const targetTenantId = req.query.tenantId || req.headers['x-tenant-id'];
+
+      let tenantData: { id: number; schema_name: string; status: string } | null = null;
+
+      if (targetTenantId) {
+        // Load specific tenant for SUPER_ADMIN
+        const tenant = await adminPrisma.$queryRaw<Array<{
+          id: number;
+          schema_name: string;
+          status: string;
+        }>>`
+          SELECT id, schema_name, status
+          FROM "public"."tenants"
+          WHERE id = ${Number(targetTenantId)}
+        `;
+
+        if (tenant && tenant.length > 0) {
+          tenantData = tenant[0]!;
+        }
+      } else {
+        // Auto-select first active tenant for SUPER_ADMIN
+        const tenant = await adminPrisma.$queryRaw<Array<{
+          id: number;
+          schema_name: string;
+          status: string;
+        }>>`
+          SELECT id, schema_name, status
+          FROM "public"."tenants"
+          WHERE status = 'ACTIVE'
+          ORDER BY id ASC
+          LIMIT 1
+        `;
+
+        if (tenant && tenant.length > 0) {
+          tenantData = tenant[0]!;
+        }
+      }
+
+      if (tenantData) {
+        const tenantPrisma = await getTenantClient(tenantData.id, tenantData.schema_name);
+        req.tenantId = tenantData.id;
+        req.schemaName = tenantData.schema_name;
+        req.prisma = tenantPrisma;
+      }
+
+      return next();
+    }
+
+    // Regular users must have tenant context
+    if (!user.tenantId) {
+      throw AppError.unauthorized('Tenant context required');
+    }
 
     // Get tenant info from public schema
     const tenant = await adminPrisma.$queryRaw<Array<{

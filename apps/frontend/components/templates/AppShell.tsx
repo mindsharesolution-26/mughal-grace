@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils/cn';
+import { canSeeNavItem } from '@/lib/config/roleAccess';
+import { UserRole } from '@/lib/types/user';
 import {
   LayoutDashboard,
   Package,
@@ -49,6 +51,7 @@ import {
   Award,
   User,
   List,
+  Shield,
 } from 'lucide-react';
 import { ChatWidget } from '@/components/organisms/chat';
 
@@ -112,6 +115,7 @@ const navigation: NavItem[] = [
     icon: Factory,
     children: [
       { label: 'Overview', href: '/production', icon: Factory },
+      { label: 'Daily Production', href: '/production/daily', icon: FileSpreadsheet },
       { label: 'Rolls', href: '/rolls', icon: ScrollText },
       { label: 'Dyeing', href: '/dyeing', icon: Palette },
     ],
@@ -176,10 +180,22 @@ const navigation: NavItem[] = [
       { label: 'Fabric Sizes', href: '/settings/fabric-sizes', icon: Ruler },
       { label: 'Machine Sizes', href: '/settings/machine-sizes', icon: Cog },
       { label: 'Fabrics', href: '/settings/fabrics', icon: Shirt },
+      { label: 'Data Import', href: '/settings/import', icon: FileSpreadsheet },
     ],
   },
 
-  // 11. Settings (System Configuration)
+  // 11. Super Admin (Platform-Level Administration)
+  {
+    label: 'Super Admin',
+    icon: Shield,
+    roles: ['SUPER_ADMIN'],
+    children: [
+      { label: 'All Factories', href: '/admin/tenants', icon: Building2 },
+      { label: 'All Users', href: '/admin/users', icon: Users },
+    ],
+  },
+
+  // 12. Settings (System Configuration)
   {
     label: 'Settings',
     icon: Settings,
@@ -205,9 +221,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   };
 
-  const filteredNav = navigation.filter(
-    (item) => !item.roles || (user?.role && item.roles.includes(user.role))
-  );
+  // Filter navigation based on role access
+  const userRole = user?.role as UserRole | undefined;
+  const filteredNav = navigation.filter((item) => {
+    // First check role-based access from roleAccess config
+    if (!canSeeNavItem(userRole, item.label)) {
+      return false;
+    }
+    // Also check explicit roles if defined on the item
+    if (item.roles && (!userRole || !item.roles.includes(userRole))) {
+      return false;
+    }
+    return true;
+  });
 
   const isChildActive = (item: NavItem) => {
     if (!item.children) return false;

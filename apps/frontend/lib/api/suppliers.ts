@@ -249,3 +249,54 @@ export const vendorPaymentsApi = {
     return response.data.data;
   },
 };
+
+// Payables Summary
+export interface PayablesSummary {
+  balancesByType: Array<{
+    entityType: string;
+    _count: number;
+    _sum: {
+      currentBalance: number | null;
+      overdueAmount: number | null;
+    };
+  }>;
+  recentPayments: Array<VendorPayment & {
+    yarnVendor?: { name: string } | null;
+    dyeingVendor?: { name: string } | null;
+    generalSupplier?: { name: string } | null;
+  }>;
+  pendingReturns: number;
+}
+
+export interface PayablesAgingEntry {
+  vendorType: string;
+  vendorId: number;
+  vendor: {
+    id: number;
+    name: string;
+    code: string;
+  } | null;
+  currentBalance: number;
+  overdueAmount: number;
+  overdueDays: number;
+  pendingChequeAmount: number;
+  pendingChequeCount: number;
+}
+
+export const payablesApi = {
+  /**
+   * Get payables summary for dashboard
+   */
+  async getSummary(): Promise<PayablesSummary> {
+    const response = await api.get<{ data: PayablesSummary }>('/payables/summary');
+    return response.data.data;
+  },
+
+  /**
+   * Get payables aging report
+   */
+  async getAgingReport(): Promise<PayablesAgingEntry[]> {
+    const response = await api.get<{ data: PayablesAgingEntry[] }>('/payables/aging');
+    return response.data.data;
+  },
+};

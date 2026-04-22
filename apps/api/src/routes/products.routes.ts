@@ -116,6 +116,118 @@ productsRouter.get('/', requirePermission('products:read'), async (req: Request,
   }
 });
 
+// ============================================
+// PRODUCTION LOGS (Stock Movements from Production)
+// NOTE: Must be before /:id route to avoid matching
+// ============================================
+
+// GET /products/production-logs - Get production logs for today/date range
+productsRouter.get('/production-logs', requirePermission('products:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { date, startDate, endDate, limit = '50' } = req.query;
+
+    // Build date filter
+    let dateFilter: any = {};
+
+    if (date) {
+      // Single date filter
+      const targetDate = new Date(date as string);
+      targetDate.setHours(0, 0, 0, 0);
+      const nextDay = new Date(targetDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      dateFilter = {
+        gte: targetDate,
+        lt: nextDay,
+      };
+    } else if (startDate && endDate) {
+      // Date range filter
+      const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+
+      dateFilter = {
+        gte: start,
+        lte: end,
+      };
+    } else {
+      // Default to today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      dateFilter = {
+        gte: today,
+        lt: tomorrow,
+      };
+    }
+
+    // Get production stock movements
+    const movements = await req.prisma!.stockMovement.findMany({
+      where: {
+        sourceType: 'PRODUCTION',
+        createdAt: dateFilter,
+      },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            articleNumber: true,
+            qrCode: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit as string),
+    });
+
+    // Calculate summary
+    const totalWeight = movements.reduce((sum, m) => sum + Number(m.quantity), 0);
+    const totalRolls = movements.length;
+
+    // Group by product for summary
+    const productSummary: Record<number, { product: any; weight: number; rolls: number }> = {};
+    movements.forEach((m) => {
+      if (!productSummary[m.productId]) {
+        productSummary[m.productId] = {
+          product: m.product,
+          weight: 0,
+          rolls: 0,
+        };
+      }
+      productSummary[m.productId].weight += Number(m.quantity);
+      productSummary[m.productId].rolls += 1;
+    });
+
+    res.json({
+      data: {
+        logs: movements.map((m) => ({
+          id: m.id,
+          rollNumber: m.referenceNumber,
+          weight: Number(m.quantity),
+          machine: m.notes?.replace('Machine #', '') || null,
+          product: m.product,
+          createdAt: m.createdAt,
+        })),
+        summary: {
+          totalWeight: Math.round(totalWeight * 100) / 100,
+          totalRolls,
+          byProduct: Object.values(productSummary).map((p) => ({
+            ...p.product,
+            weight: Math.round(p.weight * 100) / 100,
+            rolls: p.rolls,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /products/:id - Get single product
 productsRouter.get('/:id', requirePermission('products:read'), validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -567,113 +679,3 @@ productsRouter.post('/seed-dummy', requirePermission('products:write'), async (r
   }
 });
 
-// ============================================
-// PRODUCTION LOGS (Stock Movements from Production)
-// ============================================
-
-// GET /products/production-logs - Get production logs for today/date range
-productsRouter.get('/production-logs', requirePermission('products:read'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { date, startDate, endDate, limit = '50' } = req.query;
-
-    // Build date filter
-    let dateFilter: any = {};
-
-    if (date) {
-      // Single date filter
-      const targetDate = new Date(date as string);
-      targetDate.setHours(0, 0, 0, 0);
-      const nextDay = new Date(targetDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-
-      dateFilter = {
-        gte: targetDate,
-        lt: nextDay,
-      };
-    } else if (startDate && endDate) {
-      // Date range filter
-      const start = new Date(startDate as string);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate as string);
-      end.setHours(23, 59, 59, 999);
-
-      dateFilter = {
-        gte: start,
-        lte: end,
-      };
-    } else {
-      // Default to today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      dateFilter = {
-        gte: today,
-        lt: tomorrow,
-      };
-    }
-
-    // Get production stock movements
-    const movements = await req.prisma!.stockMovement.findMany({
-      where: {
-        sourceType: 'PRODUCTION',
-        createdAt: dateFilter,
-      },
-      include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            articleNumber: true,
-            qrCode: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(limit as string),
-    });
-
-    // Calculate summary
-    const totalWeight = movements.reduce((sum, m) => sum + Number(m.quantity), 0);
-    const totalRolls = movements.length;
-
-    // Group by product for summary
-    const productSummary: Record<number, { product: any; weight: number; rolls: number }> = {};
-    movements.forEach((m) => {
-      if (!productSummary[m.productId]) {
-        productSummary[m.productId] = {
-          product: m.product,
-          weight: 0,
-          rolls: 0,
-        };
-      }
-      productSummary[m.productId].weight += Number(m.quantity);
-      productSummary[m.productId].rolls += 1;
-    });
-
-    res.json({
-      data: {
-        logs: movements.map((m) => ({
-          id: m.id,
-          rollNumber: m.referenceNumber,
-          weight: Number(m.quantity),
-          machine: m.notes?.replace('Machine #', '') || null,
-          product: m.product,
-          createdAt: m.createdAt,
-        })),
-        summary: {
-          totalWeight: Math.round(totalWeight * 100) / 100,
-          totalRolls,
-          byProduct: Object.values(productSummary).map((p) => ({
-            ...p.product,
-            weight: Math.round(p.weight * 100) / 100,
-            rolls: p.rolls,
-          })),
-        },
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});

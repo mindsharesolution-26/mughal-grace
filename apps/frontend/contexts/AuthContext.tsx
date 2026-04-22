@@ -92,10 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.post('/auth/login', { email, password });
       const { user, accessToken } = response.data;
 
+      // Use secure cookies in production, allow insecure in development
+      const isProduction = process.env.NODE_ENV === 'production';
+
       Cookies.set('access_token', accessToken, {
         expires: 1 / 96, // 15 minutes
-        secure: true, // Always use secure cookies
-        sameSite: 'strict', // Prevent CSRF
+        secure: isProduction,
+        sameSite: isProduction ? 'strict' : 'lax',
       });
 
       setUser(user);
@@ -110,10 +113,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.post('/auth/register', data);
       const { user, accessToken } = response.data;
 
+      const isProduction = process.env.NODE_ENV === 'production';
+
       Cookies.set('access_token', accessToken, {
         expires: 1 / 96,
-        secure: true, // Always use secure cookies
-        sameSite: 'strict', // Prevent CSRF
+        secure: isProduction,
+        sameSite: isProduction ? 'strict' : 'lax',
       });
 
       setUser(user);

@@ -33,7 +33,8 @@ type TabId =
   | 'units'
   | 'whatsapp'
   | 'notifications'
-  | 'security';
+  | 'security'
+  | 'data-management';
 
 // WhatsApp settings interface
 interface WhatsAppSettings {
@@ -92,6 +93,13 @@ export default function SettingsPage() {
   const [editingGroup, setEditingGroup] = useState<ProductGroup | null>(null);
   const [editingBrand, setEditingBrand] = useState<Brand | null>(null);
   const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
+
+  // Factory Reset states
+  const [resetConfirmation, setResetConfirmation] = useState('');
+  const [keepSettings, setKeepSettings] = useState(false);
+  const [resettingFactory, setResettingFactory] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetResult, setResetResult] = useState<{ message: string; details: Record<string, number> } | null>(null);
 
   // Fetch data when tab changes
   useEffect(() => {
@@ -877,6 +885,41 @@ export default function SettingsPage() {
     }
   };
 
+  // Factory Reset handler
+  const handleFactoryReset = async () => {
+    if (resetConfirmation !== 'RESET_FACTORY_DATA') {
+      showToast('error', 'Please type RESET_FACTORY_DATA to confirm');
+      return;
+    }
+
+    setResettingFactory(true);
+    try {
+      const response = await fetch('/api/v1/settings/reset-factory-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: resetConfirmation,
+          keepSettings,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setResetResult(data);
+        showToast('success', data.message);
+        setShowResetModal(false);
+        setResetConfirmation('');
+      } else {
+        showToast('error', data.error || 'Failed to reset factory data');
+      }
+    } catch (error) {
+      showToast('error', 'Failed to reset factory data');
+    } finally {
+      setResettingFactory(false);
+    }
+  };
+
   // Tab configuration
   const tabs = [
     { key: 'profile', label: 'Profile', icon: '👤' },
@@ -888,6 +931,7 @@ export default function SettingsPage() {
     { key: 'whatsapp', label: 'WhatsApp', icon: '💬' },
     { key: 'notifications', label: 'Notifications', icon: '🔔' },
     { key: 'security', label: 'Security', icon: '🔒' },
+    { key: 'data-management', label: 'Data Management', icon: '🗃️' },
   ];
 
   return (
@@ -1652,8 +1696,148 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* Data Management Tab */}
+          {activeTab === 'data-management' && (
+            <div className="space-y-6">
+              {/* Reset Result */}
+              {resetResult && (
+                <div className="bg-factory-dark rounded-2xl border border-success/30 p-6">
+                  <h2 className="text-lg font-semibold text-success mb-4">Reset Complete</h2>
+                  <p className="text-neutral-300 mb-4">{resetResult.message}</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {Object.entries(resetResult.details).map(([key, value]) => (
+                      <div key={key} className="bg-factory-gray rounded-lg p-3">
+                        <p className="text-xs text-neutral-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                        <p className="text-lg font-semibold text-white">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setResetResult(null)}
+                    className="mt-4"
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              )}
+
+              {/* Factory Data Reset */}
+              <div className="bg-factory-dark rounded-2xl border border-error/30 p-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-full bg-error/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-2xl">⚠️</span>
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="text-lg font-semibold text-white mb-2">Reset Factory Data</h2>
+                    <p className="text-neutral-400 text-sm mb-4">
+                      This will permanently delete all transactional data from your factory including:
+                    </p>
+                    <ul className="text-sm text-neutral-400 list-disc list-inside mb-4 space-y-1">
+                      <li>Production records and daily logs</li>
+                      <li>Yarn stock, inward/outward transactions, and ledger entries</li>
+                      <li>Roll inventory and dyeing records</li>
+                      <li>Sales, receivables, payables, and cheques</li>
+                      <li>Needle stock, transactions, and damage reports</li>
+                      <li>Stock movements and inventory transactions</li>
+                    </ul>
+                    <p className="text-error text-sm font-medium mb-4">
+                      This action cannot be undone!
+                    </p>
+
+                    <div className="flex flex-wrap gap-4 items-center">
+                      <Button
+                        variant="danger"
+                        onClick={() => setShowResetModal(true)}
+                      >
+                        Reset Factory Data
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Information */}
+              <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+                <h2 className="text-lg font-semibold text-white mb-4">About Data Reset</h2>
+                <div className="space-y-4 text-sm text-neutral-400">
+                  <p>
+                    <strong className="text-white">When to use this:</strong> Use the factory reset when you want to start fresh with a clean database. This is useful for testing, demo purposes, or when starting a new accounting period.
+                  </p>
+                  <p>
+                    <strong className="text-white">Keep Settings option:</strong> When enabled, master data like products, fabrics, machines, yarn types, vendors, and parties will be preserved. Only transactional data will be deleted.
+                  </p>
+                  <p>
+                    <strong className="text-white">What is preserved:</strong> User accounts, departments, units, colors, grades, fabric types, and other configuration settings are never deleted by this operation.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Reset Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-factory-dark rounded-2xl border border-error/30 w-full max-w-md">
+            <div className="p-6 border-b border-factory-border">
+              <h2 className="text-xl font-semibold text-error">Confirm Factory Reset</h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-neutral-300">
+                You are about to delete all transactional data. This action is irreversible.
+              </p>
+
+              <div className="flex items-center gap-3 p-3 bg-factory-gray rounded-lg">
+                <input
+                  type="checkbox"
+                  id="keep-settings"
+                  checked={keepSettings}
+                  onChange={(e) => setKeepSettings(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="keep-settings" className="text-neutral-300 text-sm">
+                  Keep master data (products, machines, vendors, parties)
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                  Type <span className="text-error font-mono">RESET_FACTORY_DATA</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={resetConfirmation}
+                  onChange={(e) => setResetConfirmation(e.target.value)}
+                  placeholder="RESET_FACTORY_DATA"
+                  className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-error font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    setResetConfirmation('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handleFactoryReset}
+                  disabled={resettingFactory || resetConfirmation !== 'RESET_FACTORY_DATA'}
+                >
+                  {resettingFactory ? 'Resetting...' : 'Reset Factory Data'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {showDeptModal && <DepartmentModal />}

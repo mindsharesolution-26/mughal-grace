@@ -19,6 +19,7 @@ import { machinesRouter } from './machines.routes';
 import { inventoryRouter } from './inventory.routes';
 import { fabricsRouter } from './fabrics.routes';
 import { chatRouter } from './chat.routes';
+import { importRouter } from './import.routes';
 
 export const apiRouter: Router = Router();
 
@@ -45,3 +46,4 @@ apiRouter.use('/machines', machinesRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/fabrics', fabricsRouter);
 apiRouter.use('/chat', chatRouter);
+apiRouter.use('/import', importRouter);

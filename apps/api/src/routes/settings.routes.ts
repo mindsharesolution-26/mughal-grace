@@ -4,6 +4,7 @@ import { tenantMiddleware } from '../middleware/tenant';
 import { requireRole, requirePermission } from '../middleware/rbac';
 import { z } from 'zod';
 import { TenantRequest } from '../types';
+import { logger } from '../utils/logger';
 
 export const settingsRouter: Router = Router();
 
@@ -2410,4 +2411,180 @@ settingsRouter.put('/users/:id', requireRole('FACTORY_OWNER'), (_req, res) => {
 
 settingsRouter.delete('/users/:id', requireRole('FACTORY_OWNER'), (_req, res) => {
   res.json({ message: 'Delete user - coming soon' });
+});
+
+// ==================== FACTORY DATA RESET ====================
+
+const resetDataSchema = z.object({
+  confirmation: z.string().min(1),
+  keepSettings: z.boolean().optional().default(false),
+});
+
+// Reset factory data - clears all transactional data
+settingsRouter.post('/reset-factory-data', requireRole('FACTORY_OWNER', 'SUPER_ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const tenantReq = req as TenantRequest;
+    const data = resetDataSchema.parse(req.body);
+
+    // Require explicit confirmation
+    if (data.confirmation !== 'RESET_FACTORY_DATA') {
+      return res.status(400).json({
+        error: 'Invalid confirmation. Type "RESET_FACTORY_DATA" to confirm.'
+      });
+    }
+
+    const prisma = tenantReq.prisma;
+
+    // Delete transactional data in order (respecting foreign key constraints)
+    // Start with the most dependent tables and work backwards
+
+    const deletedCounts: Record<string, number> = {};
+
+    // 1. Delete cheques and financial transactions
+    const cheques = await prisma.cheque.deleteMany({});
+    deletedCounts.cheques = cheques.count;
+
+    // 2. Delete receivables and payables
+    const receivablePayments = await prisma.receivablePayment.deleteMany({});
+    deletedCounts.receivablePayments = receivablePayments.count;
+
+    const receivables = await prisma.receivable.deleteMany({});
+    deletedCounts.receivables = receivables.count;
+
+    const payablePayments = await prisma.payablePayment.deleteMany({});
+    deletedCounts.payablePayments = payablePayments.count;
+
+    const payables = await prisma.payable.deleteMany({});
+    deletedCounts.payables = payables.count;
+
+    // 3. Delete sales
+    const saleItems = await prisma.saleItem.deleteMany({});
+    deletedCounts.saleItems = saleItems.count;
+
+    const sales = await prisma.sale.deleteMany({});
+    deletedCounts.sales = sales.count;
+
+    // 4. Delete dyeing records
+    const dyeingEntries = await prisma.dyeingEntry.deleteMany({});
+    deletedCounts.dyeingEntries = dyeingEntries.count;
+
+    // 5. Delete roll inventory
+    const rollInventory = await prisma.rollInventory.deleteMany({});
+    deletedCounts.rollInventory = rollInventory.count;
+
+    // 6. Delete production records
+    const production = await prisma.production.deleteMany({});
+    deletedCounts.production = production.count;
+
+    // 7. Delete needle machine assignments and damage reports
+    const needleDamages = await prisma.needleDamageReport.deleteMany({});
+    deletedCounts.needleDamages = needleDamages.count;
+
+    const machineNeedles = await prisma.machineNeedle.deleteMany({});
+    deletedCounts.machineNeedles = machineNeedles.count;
+
+    // 8. Delete needle transactions and stock
+    const needleTransactions = await prisma.needleTransaction.deleteMany({});
+    deletedCounts.needleTransactions = needleTransactions.count;
+
+    const needleStock = await prisma.needleStock.deleteMany({});
+    deletedCounts.needleStock = needleStock.count;
+
+    // 9. Delete machine maintenance logs
+    const machineLogs = await prisma.machineLog.deleteMany({});
+    deletedCounts.machineLogs = machineLogs.count;
+
+    // 10. Delete stock movements and inventory transactions
+    const stockMovements = await prisma.stockMovement.deleteMany({});
+    deletedCounts.stockMovements = stockMovements.count;
+
+    const inventoryTransactions = await prisma.inventoryTransaction.deleteMany({});
+    deletedCounts.inventoryTransactions = inventoryTransactions.count;
+
+    // 11. Delete inventory items
+    const inventoryItems = await prisma.inventoryItem.deleteMany({});
+    deletedCounts.inventoryItems = inventoryItems.count;
+
+    // 12. Delete yarn ledger and transactions
+    const yarnLedgerEntries = await prisma.yarnLedgerEntry.deleteMany({});
+    deletedCounts.yarnLedgerEntries = yarnLedgerEntries.count;
+
+    const yarnInwardItems = await prisma.yarnInwardItem.deleteMany({});
+    deletedCounts.yarnInwardItems = yarnInwardItems.count;
+
+    const yarnInwards = await prisma.yarnInward.deleteMany({});
+    deletedCounts.yarnInwards = yarnInwards.count;
+
+    const yarnOutwardItems = await prisma.yarnOutwardItem.deleteMany({});
+    deletedCounts.yarnOutwardItems = yarnOutwardItems.count;
+
+    const yarnOutwards = await prisma.yarnOutward.deleteMany({});
+    deletedCounts.yarnOutwards = yarnOutwards.count;
+
+    const yarnPayOrderItems = await prisma.yarnPayOrderItem.deleteMany({});
+    deletedCounts.yarnPayOrderItems = yarnPayOrderItems.count;
+
+    const yarnPayOrders = await prisma.yarnPayOrder.deleteMany({});
+    deletedCounts.yarnPayOrders = yarnPayOrders.count;
+
+    // 13. Delete yarn stock
+    const yarnStock = await prisma.yarnStock.deleteMany({});
+    deletedCounts.yarnStock = yarnStock.count;
+
+    // If keepSettings is false, also delete master data
+    if (!data.keepSettings) {
+      // Delete products
+      const products = await prisma.product.deleteMany({});
+      deletedCounts.products = products.count;
+
+      // Delete fabrics
+      const fabrics = await prisma.fabric.deleteMany({});
+      deletedCounts.fabrics = fabrics.count;
+
+      // Delete machines
+      const machines = await prisma.machine.deleteMany({});
+      deletedCounts.machines = machines.count;
+
+      // Delete needle types
+      const needleTypes = await prisma.needleType.deleteMany({});
+      deletedCounts.needleTypes = needleTypes.count;
+
+      // Delete yarn types
+      const yarnTypes = await prisma.yarnType.deleteMany({});
+      deletedCounts.yarnTypes = yarnTypes.count;
+
+      // Delete yarn vendors
+      const yarnVendors = await prisma.yarnVendor.deleteMany({});
+      deletedCounts.yarnVendors = yarnVendors.count;
+
+      // Delete customers/parties
+      const parties = await prisma.party.deleteMany({});
+      deletedCounts.parties = parties.count;
+
+      // Delete warehouses
+      const warehouses = await prisma.warehouse.deleteMany({});
+      deletedCounts.warehouses = warehouses.count;
+
+      // Delete inventory categories
+      const invCategories = await prisma.inventoryCategory.deleteMany({});
+      deletedCounts.inventoryCategories = invCategories.count;
+    }
+
+    // Calculate total deleted records
+    const totalDeleted = Object.values(deletedCounts).reduce((sum, count) => sum + count, 0);
+
+    logger.info(`Factory data reset by user ${tenantReq.user?.userId}. Deleted ${totalDeleted} records.`);
+
+    res.json({
+      message: `Factory data reset successfully. Deleted ${totalDeleted} records.`,
+      details: deletedCounts,
+      keepSettings: data.keepSettings,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors });
+    }
+    console.error('Error resetting factory data:', error);
+    res.status(500).json({ error: 'Failed to reset factory data' });
+  }
 });

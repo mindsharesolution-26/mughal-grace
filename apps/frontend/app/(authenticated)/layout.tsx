@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppShell } from '@/components/templates/AppShell';
+import { RouteGuard } from '@/components/organisms/RouteGuard';
 
 export default function AuthenticatedLayout({
   children,
@@ -33,5 +34,9 @@ export default function AuthenticatedLayout({
     return null;
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <RouteGuard>{children}</RouteGuard>
+    </AppShell>
+  );
 }

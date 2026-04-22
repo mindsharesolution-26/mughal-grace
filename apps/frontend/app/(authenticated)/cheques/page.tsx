@@ -1,174 +1,174 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { StatsCard } from '@/components/molecules/StatsCard';
 import { ChequeStatusBadge } from '@/components/atoms/StatusBadge';
+import { useToast } from '@/contexts/ToastContext';
 import {
+  chequesApi,
   Cheque,
   ChequeType,
   ChequeStatus,
+  ChequeSummary,
+  getChequeEntityName,
+} from '@/lib/api/cheques';
+import {
   CHEQUE_TYPES,
   CHEQUE_STATUSES,
   formatChequeAmount,
   formatDate,
-  getChequePartyName,
   getDaysUntilMaturity,
 } from '@/lib/types/cheque';
+import { Loader2, RefreshCw } from 'lucide-react';
 
-// Mock data
-const mockCheques: Cheque[] = [
-  {
-    id: '1',
-    chequeNumber: '001234',
-    chequeType: 'ISSUED',
-    vendorType: 'YARN',
-    vendorName: 'Textile Hub',
-    bankName: 'HBL',
-    branchName: 'Faisalabad Main',
-    amount: 75000,
-    chequeDate: '2024-01-28',
-    status: 'PENDING',
-    bounceCount: 0,
-    createdAt: '2024-01-20',
-    updatedAt: '2024-01-20',
-  },
-  {
-    id: '2',
-    chequeNumber: '005678',
-    chequeType: 'RECEIVED',
-    customerId: '1',
-    customerName: 'Fashion Hub',
-    bankName: 'MCB',
-    amount: 100000,
-    chequeDate: '2024-01-25',
-    receivedDate: '2024-01-18',
-    depositDate: '2024-01-22',
-    status: 'DEPOSITED',
-    bounceCount: 0,
-    createdAt: '2024-01-18',
-    updatedAt: '2024-01-22',
-  },
-  {
-    id: '3',
-    chequeNumber: '005679',
-    chequeType: 'RECEIVED',
-    customerId: '2',
-    customerName: 'Textile World',
-    bankName: 'UBL',
-    amount: 150000,
-    chequeDate: '2024-01-30',
-    receivedDate: '2024-01-15',
-    status: 'PENDING',
-    bounceCount: 0,
-    createdAt: '2024-01-15',
-    updatedAt: '2024-01-15',
-  },
-  {
-    id: '4',
-    chequeNumber: '001233',
-    chequeType: 'ISSUED',
-    vendorType: 'DYEING',
-    vendorName: 'Color Masters',
-    bankName: 'HBL',
-    amount: 50000,
-    chequeDate: '2024-01-20',
-    clearanceDate: '2024-01-23',
-    status: 'CLEARED',
-    bounceCount: 0,
-    createdAt: '2024-01-15',
-    updatedAt: '2024-01-23',
-  },
-  {
-    id: '5',
-    chequeNumber: '005677',
-    chequeType: 'RECEIVED',
-    customerId: '3',
-    customerName: 'Garment King',
-    bankName: 'ABL',
-    amount: 80000,
-    chequeDate: '2024-01-15',
-    receivedDate: '2024-01-10',
-    depositDate: '2024-01-12',
-    bouncedDate: '2024-01-18',
-    status: 'BOUNCED',
-    bounceReason: 'Insufficient funds',
-    bounceCharges: 1500,
-    bounceCount: 1,
-    createdAt: '2024-01-10',
-    updatedAt: '2024-01-18',
-  },
-  {
-    id: '6',
-    chequeNumber: '001235',
-    chequeType: 'ISSUED',
-    vendorType: 'GENERAL',
-    vendorName: 'Needle Works',
-    bankName: 'HBL',
-    amount: 25000,
-    chequeDate: '2024-02-05',
-    status: 'PENDING',
-    bounceCount: 0,
-    createdAt: '2024-01-22',
-    updatedAt: '2024-01-22',
-  },
-];
+// Format currency
+const formatPKR = (amount: number) => {
+  return new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
 
 export default function ChequesPage() {
   const searchParams = useSearchParams();
+  const { showToast } = useToast();
   const initialType = searchParams.get('type') as ChequeType | null;
   const initialStatus = searchParams.get('status') as ChequeStatus | null;
 
+  // Data state
+  const [cheques, setCheques] = useState<Cheque[]>([]);
+  const [summary, setSummary] = useState<ChequeSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
+  // Filter state
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<ChequeType | 'all'>(initialType || 'all');
   const [statusFilter, setStatusFilter] = useState<ChequeStatus | 'all'>(initialStatus || 'all');
   const [activeTab, setActiveTab] = useState<'all' | 'issued' | 'received'>(
     initialType === 'ISSUED' ? 'issued' : initialType === 'RECEIVED' ? 'received' : 'all'
   );
 
-  // Filter cheques
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [totalCheques, setTotalCheques] = useState(0);
+  const limit = 20;
+
+  // Load data
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const typeFilter = activeTab === 'all' ? undefined : activeTab === 'issued' ? 'ISSUED' : 'RECEIVED';
+      const statusFilterValue = statusFilter === 'all' ? undefined : statusFilter;
+
+      const [chequesData, summaryData] = await Promise.all([
+        chequesApi.getAll({
+          page,
+          limit,
+          type: typeFilter,
+          status: statusFilterValue,
+        }),
+        chequesApi.getSummary(),
+      ]);
+
+      setCheques(chequesData.data);
+      setTotalCheques(chequesData.pagination?.total || chequesData.data.length);
+      setSummary(summaryData);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load cheques');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [activeTab, statusFilter, page]);
+
+  // Local search filter (on loaded data)
   const filteredCheques = useMemo(() => {
-    return mockCheques.filter((cheque) => {
-      const matchesSearch =
-        searchQuery === '' ||
-        cheque.chequeNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (cheque.customerName?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (cheque.vendorName?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        cheque.bankName.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!searchQuery) return cheques;
 
-      const matchesTab =
-        activeTab === 'all' ||
-        (activeTab === 'issued' && cheque.chequeType === 'ISSUED') ||
-        (activeTab === 'received' && cheque.chequeType === 'RECEIVED');
-
-      const matchesStatus =
-        statusFilter === 'all' || cheque.status === statusFilter;
-
-      return matchesSearch && matchesTab && matchesStatus;
+    const query = searchQuery.toLowerCase();
+    return cheques.filter((cheque) => {
+      const partyName = getChequeEntityName(cheque).toLowerCase();
+      return (
+        cheque.chequeNumber.toLowerCase().includes(query) ||
+        partyName.includes(query) ||
+        cheque.bankName.toLowerCase().includes(query)
+      );
     });
-  }, [searchQuery, activeTab, statusFilter]);
+  }, [cheques, searchQuery]);
 
-  // Calculate stats
+  // Calculate stats from summary
   const stats = useMemo(() => {
-    const issued = mockCheques.filter((c) => c.chequeType === 'ISSUED');
-    const received = mockCheques.filter((c) => c.chequeType === 'RECEIVED');
-    const pending = mockCheques.filter((c) => c.status === 'PENDING' || c.status === 'DEPOSITED');
-    const bounced = mockCheques.filter((c) => c.status === 'BOUNCED');
+    if (!summary) {
+      return {
+        issuedCount: 0,
+        issuedAmount: 0,
+        receivedCount: 0,
+        receivedAmount: 0,
+        pendingCount: 0,
+        pendingAmount: 0,
+        bouncedCount: 0,
+      };
+    }
+
+    const issued = summary.byType?.find(t => t.chequeType === 'ISSUED');
+    const received = summary.byType?.find(t => t.chequeType === 'RECEIVED');
 
     return {
-      issuedCount: issued.length,
-      issuedAmount: issued.reduce((sum, c) => sum + c.amount, 0),
-      receivedCount: received.length,
-      receivedAmount: received.reduce((sum, c) => sum + c.amount, 0),
-      pendingCount: pending.length,
-      pendingAmount: pending.reduce((sum, c) => sum + c.amount, 0),
-      bouncedCount: bounced.length,
-      bouncedAmount: bounced.reduce((sum, c) => sum + c.amount, 0),
+      issuedCount: issued?._count || 0,
+      issuedAmount: issued?._sum?.amount || 0,
+      receivedCount: received?._count || 0,
+      receivedAmount: received?._sum?.amount || 0,
+      pendingCount: summary.pendingClearance?.count || 0,
+      pendingAmount: summary.pendingClearance?.amount || 0,
+      bouncedCount: summary.bouncedCount || 0,
     };
-  }, []);
+  }, [summary]);
+
+  // Action handlers
+  const handleDeposit = async (chequeId: number) => {
+    setActionLoading(chequeId);
+    try {
+      await chequesApi.deposit(chequeId, { depositDate: new Date().toISOString().split('T')[0] });
+      showToast('success', 'Cheque marked as deposited');
+      loadData();
+    } catch (err: any) {
+      showToast('error', err.response?.data?.error || 'Failed to deposit cheque');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleClear = async (chequeId: number) => {
+    setActionLoading(chequeId);
+    try {
+      await chequesApi.clear(chequeId, { clearanceDate: new Date().toISOString().split('T')[0] });
+      showToast('success', 'Cheque cleared successfully');
+      loadData();
+    } catch (err: any) {
+      showToast('error', err.response?.data?.error || 'Failed to clear cheque');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  if (isLoading && cheques.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -180,28 +180,43 @@ export default function ChequesPage() {
             Manage issued and received cheques
           </p>
         </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={loadData} disabled={isLoading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {error && (
+        <div className="bg-error/10 border border-error/20 rounded-xl p-4 text-error">
+          {error}
+          <Button variant="ghost" size="sm" onClick={loadData} className="ml-4">
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title="Issued Cheques"
           value={stats.issuedCount}
-          change={formatChequeAmount(stats.issuedAmount)}
+          change={formatPKR(Number(stats.issuedAmount))}
           changeType="neutral"
           icon="📤"
         />
         <StatsCard
           title="Received Cheques"
           value={stats.receivedCount}
-          change={formatChequeAmount(stats.receivedAmount)}
+          change={formatPKR(Number(stats.receivedAmount))}
           changeType="neutral"
           icon="📥"
         />
         <StatsCard
           title="Pending Clearance"
           value={stats.pendingCount}
-          change={formatChequeAmount(stats.pendingAmount)}
+          change={formatPKR(Number(stats.pendingAmount))}
           changeType="neutral"
           icon="⏳"
         />
@@ -224,7 +239,10 @@ export default function ChequesPage() {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setPage(1);
+              }}
               className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
                 activeTab === tab.id
                   ? 'text-primary-400'
@@ -253,7 +271,10 @@ export default function ChequesPage() {
           <div className="flex gap-2">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as typeof statusFilter);
+                setPage(1);
+              }}
               className="px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Status</option>
@@ -286,7 +307,8 @@ export default function ChequesPage() {
             <tbody className="divide-y divide-factory-border">
               {filteredCheques.map((cheque) => {
                 const daysUntil = getDaysUntilMaturity(cheque.chequeDate);
-                const partyName = getChequePartyName(cheque);
+                const partyName = getChequeEntityName(cheque);
+                const isActionLoading = actionLoading === cheque.id;
 
                 return (
                   <tr key={cheque.id} className="hover:bg-factory-gray transition-colors">
@@ -301,7 +323,7 @@ export default function ChequesPage() {
                           ? 'bg-error/20 text-error'
                           : 'bg-success/20 text-success'
                       }`}>
-                        {CHEQUE_TYPES[cheque.chequeType].label}
+                        {CHEQUE_TYPES[cheque.chequeType]?.label || cheque.chequeType}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -315,7 +337,7 @@ export default function ChequesPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span className="text-white font-medium">
-                        {formatChequeAmount(cheque.amount)}
+                        {formatPKR(Number(cheque.amount))}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center">
@@ -349,10 +371,24 @@ export default function ChequesPage() {
                           <Button variant="ghost" size="sm">View</Button>
                         </Link>
                         {cheque.status === 'PENDING' && cheque.chequeType === 'RECEIVED' && (
-                          <Button variant="ghost" size="sm">Deposit</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeposit(cheque.id)}
+                            disabled={isActionLoading}
+                          >
+                            {isActionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Deposit'}
+                          </Button>
                         )}
                         {cheque.status === 'DEPOSITED' && (
-                          <Button variant="ghost" size="sm">Clear</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleClear(cheque.id)}
+                            disabled={isActionLoading}
+                          >
+                            {isActionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Clear'}
+                          </Button>
                         )}
                       </div>
                     </td>
@@ -362,7 +398,7 @@ export default function ChequesPage() {
             </tbody>
           </table>
 
-          {filteredCheques.length === 0 && (
+          {filteredCheques.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <p className="text-neutral-400">No cheques found matching your search.</p>
             </div>
@@ -370,18 +406,45 @@ export default function ChequesPage() {
         </div>
       </div>
 
+      {/* Pagination */}
+      {totalCheques > limit && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-neutral-400">
+            Showing {(page - 1) * limit + 1} - {Math.min(page * limit, totalCheques)} of {totalCheques}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPage(p => p + 1)}
+              disabled={page * limit >= totalCheques}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Summary Footer */}
       <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
         <div className="flex flex-wrap gap-6 text-sm">
           <div>
             <span className="text-neutral-400">Showing:</span>{' '}
             <span className="text-white font-medium">{filteredCheques.length}</span>{' '}
-            <span className="text-neutral-400">of {mockCheques.length} cheques</span>
+            <span className="text-neutral-400">cheques</span>
           </div>
           <div>
             <span className="text-neutral-400">Total Amount:</span>{' '}
             <span className="text-white font-medium">
-              {formatChequeAmount(filteredCheques.reduce((sum, c) => sum + c.amount, 0))}
+              {formatPKR(filteredCheques.reduce((sum, c) => sum + Number(c.amount), 0))}
             </span>
           </div>
         </div>
