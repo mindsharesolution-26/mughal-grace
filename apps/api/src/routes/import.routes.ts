@@ -290,7 +290,7 @@ function transformRow(
 
 // GET /import/templates/:entityType - Download template
 importRouter.get('/templates/:entityType', requirePermission('settings:read'), (req: Request, res: Response) => {
-  const { entityType } = req.params;
+  const entityType = String(req.params.entityType);
   const config = ENTITY_CONFIGS[entityType];
 
   if (!config) {
@@ -505,7 +505,7 @@ importRouter.post('/execute', requirePermission('settings:write'), upload.single
 });
 
 // Import helper functions
-async function importProduct(prisma: any, data: any, tenantId: string) {
+async function importProduct(prisma: any, data: any, tenantId: number) {
   // Check if product already exists
   const existing = await prisma.product.findFirst({
     where: { tenantId, articleNumber: data.articleNumber },
@@ -552,7 +552,7 @@ async function importProduct(prisma: any, data: any, tenantId: string) {
   }
 }
 
-async function importCustomer(prisma: any, data: any, tenantId: string) {
+async function importCustomer(prisma: any, data: any, tenantId: number) {
   const code = data.code || `CUST-${Date.now().toString(36).toUpperCase()}`;
 
   const existing = await prisma.customer.findFirst({
@@ -600,7 +600,7 @@ async function importCustomer(prisma: any, data: any, tenantId: string) {
   }
 }
 
-async function importYarnVendor(prisma: any, data: any, tenantId: string) {
+async function importYarnVendor(prisma: any, data: any, tenantId: number) {
   const code = data.code || `YV-${Date.now().toString(36).toUpperCase()}`;
 
   const existing = await prisma.yarnVendor.findFirst({
@@ -646,7 +646,7 @@ async function importYarnVendor(prisma: any, data: any, tenantId: string) {
   }
 }
 
-async function importDyeingVendor(prisma: any, data: any, tenantId: string) {
+async function importDyeingVendor(prisma: any, data: any, tenantId: number) {
   const code = data.code || `DV-${Date.now().toString(36).toUpperCase()}`;
 
   const existing = await prisma.dyeingVendor.findFirst({
@@ -692,7 +692,7 @@ async function importDyeingVendor(prisma: any, data: any, tenantId: string) {
   }
 }
 
-async function importGeneralSupplier(prisma: any, data: any, tenantId: string) {
+async function importGeneralSupplier(prisma: any, data: any, tenantId: number) {
   const code = data.code || `GS-${Date.now().toString(36).toUpperCase()}`;
 
   const existing = await prisma.generalSupplier.findFirst({
@@ -740,7 +740,7 @@ async function importGeneralSupplier(prisma: any, data: any, tenantId: string) {
   }
 }
 
-async function importOpeningBalance(prisma: any, data: any, tenantId: string) {
+async function importOpeningBalance(prisma: any, data: any, tenantId: number) {
   // Find the entity
   let entityId: number | null = null;
   let entityType = data.entityType;

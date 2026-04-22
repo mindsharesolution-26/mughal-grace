@@ -30,7 +30,7 @@ adminRouter.get('/tenants', async (_req: Request, res: Response, next: NextFunct
  */
 adminRouter.get('/tenants/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tenantId = parseInt(req.params.id, 10);
+    const tenantId = parseInt(String(req.params.id), 10);
     if (isNaN(tenantId)) {
       throw AppError.badRequest('Invalid tenant ID');
     }
@@ -83,7 +83,7 @@ adminRouter.get('/users', async (req: Request, res: Response, next: NextFunction
  */
 adminRouter.get('/users/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(String(req.params.id), 10);
     if (isNaN(userId)) {
       throw AppError.badRequest('Invalid user ID');
     }
@@ -112,7 +112,7 @@ const updateUserSchema = z.object({
  */
 adminRouter.put('/users/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(String(req.params.id), 10);
     if (isNaN(userId)) {
       throw AppError.badRequest('Invalid user ID');
     }
@@ -137,7 +137,7 @@ adminRouter.put('/users/:id', async (req: Request, res: Response, next: NextFunc
  */
 adminRouter.delete('/users/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(String(req.params.id), 10);
     if (isNaN(userId)) {
       throw AppError.badRequest('Invalid user ID');
     }
@@ -171,7 +171,7 @@ adminRouter.post('/users', async (req: Request, res: Response, next: NextFunctio
       throw AppError.badRequest(validation.error.errors[0]?.message || 'Invalid input');
     }
 
-    const data: CreateUserData = validation.data;
+    const data = validation.data as CreateUserData;
     const newUser = await superAdminService.createUser(data);
 
     res.status(201).json({ message: 'User created successfully', data: newUser });
@@ -198,7 +198,7 @@ adminRouter.post('/users/super-admin', async (req: Request, res: Response, next:
       throw AppError.badRequest(validation.error.errors[0]?.message || 'Invalid input');
     }
 
-    const data: CreateSuperAdminData = validation.data;
+    const data = validation.data as CreateSuperAdminData;
     const newUser = await superAdminService.createSuperAdmin(data);
 
     res.status(201).json({ message: 'Super Admin created successfully', data: newUser });
