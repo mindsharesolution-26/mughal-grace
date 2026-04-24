@@ -42,6 +42,28 @@ export default function FabricLedgerPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
+  // Load ledger for selected fabric
+  const loadLedger = useCallback(async (fabricId: number, page = 1) => {
+    setIsLoading(true);
+    try {
+      const params: { startDate?: string; endDate?: string; page: number; limit: number } = {
+        page,
+        limit: pagination.limit,
+      };
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+
+      const data = await fabricsApi.getLedger(fabricId, params);
+      setSelectedFabric(data.fabric);
+      setEntries(data.entries);
+      setPagination(data.pagination);
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to load ledger');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [startDate, endDate, pagination.limit, showToast]);
+
   // Load fabrics for dropdown
   useEffect(() => {
     const loadFabrics = async () => {
@@ -77,28 +99,6 @@ export default function FabricLedgerPage() {
       f.code.toLowerCase().includes(query)
     );
   });
-
-  // Load ledger for selected fabric
-  const loadLedger = useCallback(async (fabricId: number, page = 1) => {
-    setIsLoading(true);
-    try {
-      const params: { startDate?: string; endDate?: string; page: number; limit: number } = {
-        page,
-        limit: pagination.limit,
-      };
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-
-      const data = await fabricsApi.getLedger(fabricId, params);
-      setSelectedFabric(data.fabric);
-      setEntries(data.entries);
-      setPagination(data.pagination);
-    } catch (error: any) {
-      showToast('error', error.response?.data?.error || 'Failed to load ledger');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [startDate, endDate, pagination.limit, showToast]);
 
   // Handle fabric selection
   const handleSelectFabric = (fabric: Fabric) => {

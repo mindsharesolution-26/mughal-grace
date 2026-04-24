@@ -9,6 +9,9 @@ import {
   LedgerEntry,
 } from '@/lib/types/product';
 
+// Re-export LedgerEntry for convenience
+export type { LedgerEntry };
+
 export const productsApi = {
   /**
    * Get lightweight lookup data for dropdowns

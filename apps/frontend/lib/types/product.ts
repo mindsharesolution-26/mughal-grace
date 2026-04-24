@@ -121,6 +121,7 @@ export interface ProductLookup {
   id: number;
   name: string;
   articleNumber: string | null;
+  qrCode: string | null;
   currentStock: string;
 }
 
@@ -150,7 +151,7 @@ export interface StockMovementInput {
 export interface LedgerEntry {
   id: number;
   date: string;
-  reference: 'Stock In' | 'Stock Out' | 'Production' | 'Adjustment';
+  reference: 'Stock In' | 'Stock Out' | 'Production' | 'Adjustment' | 'Sale';
   referenceNumber: string | null;
   qtyIn: number | null;
   qtyOut: number | null;

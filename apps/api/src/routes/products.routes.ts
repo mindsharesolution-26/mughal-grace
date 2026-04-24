@@ -116,6 +116,7 @@ productsRouter.get('/lookup', requirePermission('products:read'), async (req: Re
         id: true,
         name: true,
         articleNumber: true,
+        qrCode: true,
         currentStock: true,
       },
       orderBy: { name: 'asc' },

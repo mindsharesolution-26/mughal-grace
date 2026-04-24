@@ -517,7 +517,7 @@ export default function NewProductPage() {
                     <option value="">No Fabric Template</option>
                     {fabrics.map((fabric) => (
                       <option key={fabric.id} value={fabric.id}>
-                        {fabric.name} {fabric.articleNumber ? `(${fabric.articleNumber})` : ''}
+                        {fabric.name} ({fabric.code})
                       </option>
                     ))}
                   </select>
