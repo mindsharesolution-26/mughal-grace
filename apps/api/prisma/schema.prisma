@@ -400,6 +400,7 @@ model Machine {
   totalNeedleSlots  Int?            @map("total_needle_slots")
   cylinderNeedles   Int?            @map("cylinder_needles")
   dialNeedles       Int?            @map("dial_needles")
+  needleConfigs     Json?           @map("needle_configs") // Manual needle entries [{name, position, quantity}]
 
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")

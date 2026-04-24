@@ -11,6 +11,7 @@ import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
 import { machinesApi } from '@/lib/api/machines';
 import { MachineFormData, machineTypeLabels, MachineType } from '@/lib/types/machine';
+import { Plus, Trash2 } from 'lucide-react';
 
 const schema = z.object({
   machineNumber: z.string().min(1, 'Machine number is required').max(50),
@@ -27,16 +28,22 @@ const schema = z.object({
   installationDate: z.string().optional(),
   needleGauge: z.number().int().positive().optional().nullable(),
   totalNeedleSlots: z.number().int().positive().optional().nullable(),
-  cylinderNeedles: z.number().int().positive().optional().nullable(),
-  dialNeedles: z.number().int().positive().optional().nullable(),
 });
 
 type FormData = z.infer<typeof schema>;
+
+interface NeedleEntry {
+  id: string;
+  name: string;
+  position: string;
+  quantity: number;
+}
 
 export default function NewMachinePage() {
   const router = useRouter();
   const { showToast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [needles, setNeedles] = useState<NeedleEntry[]>([]);
 
   const {
     register,
@@ -52,6 +59,33 @@ export default function NewMachinePage() {
 
   const selectedType = watch('machineType');
 
+  // Add new needle entry
+  const addNeedle = () => {
+    setNeedles([
+      ...needles,
+      {
+        id: Date.now().toString(),
+        name: '',
+        position: '',
+        quantity: 0,
+      },
+    ]);
+  };
+
+  // Remove needle entry
+  const removeNeedle = (id: string) => {
+    setNeedles(needles.filter((n) => n.id !== id));
+  };
+
+  // Update needle entry
+  const updateNeedle = (id: string, field: keyof NeedleEntry, value: string | number) => {
+    setNeedles(
+      needles.map((n) =>
+        n.id === id ? { ...n, [field]: value } : n
+      )
+    );
+  };
+
   const onSubmit = async (data: FormData) => {
     setIsSubmitting(true);
     try {
@@ -62,8 +96,12 @@ export default function NewMachinePage() {
         feeders: data.feeders || undefined,
         needleGauge: data.needleGauge || undefined,
         totalNeedleSlots: data.totalNeedleSlots || undefined,
-        cylinderNeedles: data.cylinderNeedles || undefined,
-        dialNeedles: data.dialNeedles || undefined,
+        // Include needles configuration
+        needles: needles.filter(n => n.name && n.quantity > 0).map(n => ({
+          name: n.name,
+          position: n.position || undefined,
+          quantity: n.quantity,
+        })),
       };
       const machine = await machinesApi.create(cleanData as MachineFormData);
       showToast('success', 'Machine created successfully');
@@ -76,6 +114,9 @@ export default function NewMachinePage() {
   };
 
   const machineTypes: MachineType[] = ['CIRCULAR_KNITTING', 'FLAT_KNITTING', 'WARP_KNITTING', 'JACQUARD'];
+
+  // Calculate total needles from entries
+  const totalNeedlesFromEntries = needles.reduce((sum, n) => sum + (n.quantity || 0), 0);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -198,8 +239,23 @@ export default function NewMachinePage() {
 
         {/* Needle Configuration */}
         <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Needle Configuration</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Needle Configuration</h2>
+              {totalNeedlesFromEntries > 0 && (
+                <p className="text-sm text-neutral-400 mt-1">
+                  Total: {totalNeedlesFromEntries.toLocaleString()} needles
+                </p>
+              )}
+            </div>
+            <Button type="button" variant="secondary" size="sm" onClick={addNeedle}>
+              <Plus className="w-4 h-4 mr-1" />
+              Add Needle
+            </Button>
+          </div>
+
+          {/* Basic needle info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <Input
               label="Needle Gauge"
               type="number"
@@ -208,27 +264,87 @@ export default function NewMachinePage() {
               {...register('needleGauge', { valueAsNumber: true })}
             />
             <Input
-              label="Total Needle Slots"
+              label="Total Needle Slots (Capacity)"
               type="number"
               placeholder="2640"
               error={errors.totalNeedleSlots?.message}
               {...register('totalNeedleSlots', { valueAsNumber: true })}
             />
-            <Input
-              label="Cylinder Needles"
-              type="number"
-              placeholder="1320"
-              error={errors.cylinderNeedles?.message}
-              {...register('cylinderNeedles', { valueAsNumber: true })}
-            />
-            <Input
-              label="Dial Needles"
-              type="number"
-              placeholder="1320"
-              error={errors.dialNeedles?.message}
-              {...register('dialNeedles', { valueAsNumber: true })}
-            />
           </div>
+
+          {/* Needle entries */}
+          {needles.length > 0 && (
+            <div className="space-y-3 mt-4 pt-4 border-t border-factory-border">
+              <p className="text-sm font-medium text-neutral-300">Needle Details</p>
+              {needles.map((needle, index) => (
+                <div
+                  key={needle.id}
+                  className="flex items-start gap-3 p-4 bg-factory-gray rounded-xl"
+                >
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">
+                        Needle Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={needle.name}
+                        onChange={(e) => updateNeedle(needle.id, 'name', e.target.value)}
+                        placeholder="e.g., Groz-Beckert 18G"
+                        className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white text-sm placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">
+                        Position
+                      </label>
+                      <select
+                        value={needle.position}
+                        onChange={(e) => updateNeedle(needle.id, 'position', e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">Select Position</option>
+                        <option value="Cylinder">Cylinder</option>
+                        <option value="Dial">Dial</option>
+                        <option value="Feeder 1">Feeder 1</option>
+                        <option value="Feeder 2">Feeder 2</option>
+                        <option value="Feeder 3">Feeder 3</option>
+                        <option value="Feeder 4">Feeder 4</option>
+                        <option value="All">All Positions</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-neutral-400 mb-1">
+                        Quantity *
+                      </label>
+                      <input
+                        type="number"
+                        value={needle.quantity || ''}
+                        onChange={(e) => updateNeedle(needle.id, 'quantity', parseInt(e.target.value) || 0)}
+                        placeholder="1320"
+                        className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white text-sm placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeNeedle(needle.id)}
+                    className="p-2 text-neutral-400 hover:text-error transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {needles.length === 0 && (
+            <div className="text-center py-6 border border-dashed border-factory-border rounded-xl mt-4">
+              <p className="text-neutral-400 text-sm">
+                Click "Add Needle" to configure needle types for this machine
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Location */}

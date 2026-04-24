@@ -21,6 +21,12 @@ machinesRouter.use(tenantMiddleware);
 const machineTypeEnum = z.enum(['CIRCULAR_KNITTING', 'FLAT_KNITTING', 'WARP_KNITTING', 'JACQUARD']);
 const machineStatusEnum = z.enum(['OPERATIONAL', 'MAINTENANCE', 'BREAKDOWN', 'IDLE', 'DECOMMISSIONED']);
 
+const needleConfigSchema = z.object({
+  name: z.string().min(1).max(100),
+  position: z.string().max(50).optional(),
+  quantity: z.number().int().positive(),
+});
+
 const createMachineSchema = z.object({
   machineNumber: z.string().min(1).max(50),
   name: z.string().min(1).max(255),
@@ -39,6 +45,7 @@ const createMachineSchema = z.object({
   totalNeedleSlots: z.number().int().positive().optional(),
   cylinderNeedles: z.number().int().positive().optional(),
   dialNeedles: z.number().int().positive().optional(),
+  needles: z.array(needleConfigSchema).optional(),
 });
 
 const updateMachineSchema = createMachineSchema.partial();
@@ -334,7 +341,7 @@ machinesRouter.get('/:id', requirePermission('production:read'), async (req: Req
 // ========================================
 machinesRouter.post('/', requirePermission('production:write'), validateBody(createMachineSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const data = req.body;
+    const { needles, ...data } = req.body;
 
     // Check for duplicate machine number
     const existing = await req.prisma!.machine.findUnique({
@@ -349,6 +356,7 @@ machinesRouter.post('/', requirePermission('production:write'), validateBody(cre
       data: {
         ...data,
         installationDate: data.installationDate ? new Date(data.installationDate) : null,
+        needleConfigs: needles && needles.length > 0 ? needles : undefined,
       },
     });
 
@@ -366,7 +374,7 @@ machinesRouter.post('/', requirePermission('production:write'), validateBody(cre
 machinesRouter.put('/:id', requirePermission('production:write'), validateBody(updateMachineSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const id = parseInt(req.params.id as string);
-    const data = req.body;
+    const { needles, ...data } = req.body;
 
     const existing = await req.prisma!.machine.findUnique({
       where: { id },
@@ -391,6 +399,7 @@ machinesRouter.put('/:id', requirePermission('production:write'), validateBody(u
       data: {
         ...data,
         installationDate: data.installationDate ? new Date(data.installationDate) : undefined,
+        needleConfigs: needles !== undefined ? (needles && needles.length > 0 ? needles : null) : undefined,
       },
     });
 
