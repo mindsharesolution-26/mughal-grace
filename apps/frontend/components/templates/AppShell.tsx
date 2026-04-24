@@ -131,6 +131,7 @@ const navigation: NavItem[] = [
       { label: 'Overview', href: '/machines', icon: Cog },
       { label: 'All Machines', href: '/machines/list', icon: ListChecks },
       { label: 'Add Machine', href: '/machines/new', icon: Plus },
+      { label: 'Machine Needles', href: '/needles/machines', icon: Drill },
       { label: 'Machine Sizes', href: '/settings/machine-sizes', icon: Ruler },
       { label: 'Maintenance', href: '/machines/maintenance', icon: Wrench },
     ],
