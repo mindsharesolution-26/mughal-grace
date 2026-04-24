@@ -81,6 +81,54 @@ export const needleTypesApi = {
   async delete(id: number): Promise<void> {
     await api.delete(`/needles/types/${id}`);
   },
+
+  /**
+   * Upload image for needle type
+   */
+  async uploadImage(id: number, file: File): Promise<{ imageUrl: string; needleType: NeedleType }> {
+    const formData = new FormData();
+    formData.append('image', file);
+    const response = await api.post<{ message: string; data: { imageUrl: string; needleType: NeedleType } }>(
+      `/needles/types/${id}/upload-image`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data.data;
+  },
+
+  /**
+   * Delete image for needle type
+   */
+  async deleteImage(id: number): Promise<NeedleType> {
+    const response = await api.delete<{ message: string; data: NeedleType }>(
+      `/needles/types/${id}/image`
+    );
+    return response.data.data;
+  },
+
+  /**
+   * Lookup needle type by barcode (for scanning)
+   */
+  async getByBarcode(barcode: string): Promise<NeedleType & { currentStock: number }> {
+    const response = await api.get<{ data: NeedleType & { currentStock: number } }>(
+      `/needles/types/barcode/${barcode}`
+    );
+    return response.data.data;
+  },
+
+  /**
+   * Regenerate barcode for needle type
+   */
+  async regenerateBarcode(id: number): Promise<NeedleType> {
+    const response = await api.post<{ message: string; data: NeedleType }>(
+      `/needles/types/${id}/regenerate-barcode`
+    );
+    return response.data.data;
+  },
 };
 
 // ============================================

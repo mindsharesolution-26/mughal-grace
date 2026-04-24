@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/atoms/Button';
 import { useToast } from '@/contexts/ToastContext';
 import { needleTypesApi } from '@/lib/api/needles';
@@ -12,6 +13,7 @@ import {
   stockStatusLabels,
   StockStatus,
 } from '@/lib/types/needle';
+import { Image as ImageIcon, QrCode } from 'lucide-react';
 
 export default function NeedleTypesPage() {
   const { showToast } = useToast();
@@ -56,6 +58,9 @@ export default function NeedleTypesPage() {
             <span className="text-white">Types</span>
           </div>
           <h1 className="text-2xl font-semibold text-white mt-2">Needle Types</h1>
+          <p className="text-neutral-400 text-sm mt-1">
+            Manage your needle inventory with photos and barcodes for easy identification
+          </p>
         </div>
         <Link href="/needles/types/new">
           <Button>Add Needle Type</Button>
@@ -99,11 +104,11 @@ export default function NeedleTypesPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-factory-border">
+                  <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Photo</th>
                   <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Code</th>
                   <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Name</th>
                   <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Type</th>
                   <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Gauge</th>
-                  <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Material</th>
                   <th className="text-right text-sm font-medium text-neutral-400 px-6 py-4">Stock</th>
                   <th className="text-left text-sm font-medium text-neutral-400 px-6 py-4">Status</th>
                   <th className="text-right text-sm font-medium text-neutral-400 px-6 py-4">Actions</th>
@@ -117,8 +122,30 @@ export default function NeedleTypesPage() {
                       key={type.id}
                       className="border-b border-factory-border last:border-0 hover:bg-factory-gray/50 transition-colors"
                     >
+                      {/* Photo */}
+                      <td className="px-6 py-3">
+                        <div className="w-12 h-12 rounded-lg border border-factory-border bg-factory-gray flex items-center justify-center overflow-hidden">
+                          {type.imageUrl ? (
+                            <Image
+                              src={type.imageUrl}
+                              alt={type.name}
+                              width={48}
+                              height={48}
+                              className="object-cover w-full h-full"
+                            />
+                          ) : (
+                            <ImageIcon className="w-5 h-5 text-neutral-500" />
+                          )}
+                        </div>
+                      </td>
+                      {/* Code with barcode indicator */}
                       <td className="px-6 py-4">
-                        <span className="text-primary-400 font-mono text-sm">{type.code}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-primary-400 font-mono text-sm">{type.code}</span>
+                          {type.barcode && (
+                            <QrCode className="w-4 h-4 text-neutral-500" title={type.barcode} />
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <Link
@@ -127,12 +154,14 @@ export default function NeedleTypesPage() {
                         >
                           {type.name}
                         </Link>
+                        {type.brand && (
+                          <p className="text-xs text-neutral-500">{type.brand}</p>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-neutral-300">
                         {needleKindLabels[type.needleKind]}
                       </td>
                       <td className="px-6 py-4 text-neutral-300">{type.gauge}G</td>
-                      <td className="px-6 py-4 text-neutral-300">{type.material}</td>
                       <td className="px-6 py-4 text-right">
                         <span className="text-white font-medium">
                           {type.currentStock.toLocaleString()}

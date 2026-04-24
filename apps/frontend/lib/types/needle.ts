@@ -105,6 +105,7 @@ export const stockStatusLabels: Record<StockStatus, string> = {
 export interface NeedleType {
   id: number;
   code: string;
+  barcode: string | null; // Auto-generated barcode for scanning
   name: string;
   needleKind: NeedleKind;
   gauge: number;
@@ -112,6 +113,7 @@ export interface NeedleType {
   material: string;
   brand: string | null;
   supplierCode: string | null;
+  imageUrl: string | null; // Photo of the needle
   costPerNeedle: number | null;
   currency: string;
   minStockLevel: number;
@@ -318,6 +320,7 @@ export interface NeedleTypeFormData {
   material: string;
   brand?: string;
   supplierCode?: string;
+  imageUrl?: string;
   costPerNeedle?: number;
   currency?: string;
   minStockLevel?: number;

@@ -1,12 +1,31 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
 import { authMiddleware } from '../middleware/auth';
 import { tenantMiddleware } from '../middleware/tenant';
 import { requirePermission } from '../middleware/rbac';
 import { validateBody, validateParams } from '../middleware/validate';
 import { AppError } from '../middleware/error-handler';
+import { uploadImage, deleteImage, NEEDLE_IMAGES_BUCKET, generateNeedleBarcode } from '../utils/supabase';
+import { logger } from '../utils/logger';
 
 export const needlesRouter: Router = Router();
+
+// Configure multer for image uploads
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for images
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (JPEG, PNG, WebP, GIF) are allowed'));
+    }
+  },
+});
 
 // Apply authentication and tenant middleware
 needlesRouter.use(authMiddleware);
@@ -34,6 +53,7 @@ const createNeedleTypeSchema = z.object({
   material: z.string().min(1, 'Material is required').max(50),
   brand: z.string().max(100).optional(),
   supplierCode: z.string().max(50).optional(),
+  imageUrl: z.string().max(500).optional(), // Photo of the needle
   costPerNeedle: z.number().positive().optional(),
   currency: z.string().length(3).optional(),
   minStockLevel: z.number().int().min(0).optional(),
@@ -195,9 +215,13 @@ needlesRouter.post('/types', requirePermission('production:write'), validateBody
       throw AppError.conflict('Needle type code already exists');
     }
 
+    // Auto-generate barcode
+    const barcode = generateNeedleBarcode(typeCode);
+
     const needleType = await req.prisma!.needleType.create({
       data: {
         code: typeCode,
+        barcode, // Auto-generated barcode for scanning
         name: req.body.name,
         needleKind: req.body.needleKind,
         gauge: req.body.gauge,
@@ -205,6 +229,7 @@ needlesRouter.post('/types', requirePermission('production:write'), validateBody
         material: req.body.material,
         brand: req.body.brand,
         supplierCode: req.body.supplierCode,
+        imageUrl: req.body.imageUrl,
         costPerNeedle: req.body.costPerNeedle,
         currency: req.body.currency || 'PKR',
         minStockLevel: req.body.minStockLevel ?? 100,
@@ -214,6 +239,8 @@ needlesRouter.post('/types', requirePermission('production:write'), validateBody
         isActive: req.body.isActive ?? true,
       },
     });
+
+    logger.info(`Needle type created: ${needleType.code} with barcode: ${needleType.barcode}`);
 
     res.status(201).json({ message: 'Needle type created', data: needleType });
   } catch (error) {
@@ -268,6 +295,146 @@ needlesRouter.delete('/types/:id', requirePermission('production:write'), valida
     });
 
     res.json({ message: 'Needle type deactivated' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /needles/types/:id/upload-image - Upload image for needle type
+needlesRouter.post('/types/:id/upload-image', requirePermission('production:write'), validateParams(idParamSchema), imageUpload.single('image'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+
+    const existing = await req.prisma!.needleType.findUnique({ where: { id } });
+    if (!existing) {
+      throw AppError.notFound('Needle type');
+    }
+
+    if (!req.file) {
+      throw AppError.badRequest('No image file uploaded');
+    }
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const ext = req.file.mimetype.split('/')[1];
+    const filename = `needle-${existing.code}-${timestamp}.${ext}`;
+
+    // Upload to Supabase Storage
+    const imageUrl = await uploadImage(
+      NEEDLE_IMAGES_BUCKET,
+      filename,
+      req.file.buffer,
+      req.file.mimetype
+    );
+
+    if (!imageUrl) {
+      throw AppError.internal('Failed to upload image. Please ensure Supabase storage is configured.');
+    }
+
+    // Update needle type with image URL
+    const needleType = await req.prisma!.needleType.update({
+      where: { id },
+      data: { imageUrl },
+    });
+
+    logger.info(`Image uploaded for needle type ${existing.code}: ${imageUrl}`);
+
+    res.json({ message: 'Image uploaded successfully', data: { imageUrl, needleType } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /needles/types/:id/image - Delete image for needle type
+needlesRouter.delete('/types/:id/image', requirePermission('production:write'), validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+
+    const existing = await req.prisma!.needleType.findUnique({ where: { id } });
+    if (!existing) {
+      throw AppError.notFound('Needle type');
+    }
+
+    if (!existing.imageUrl) {
+      throw AppError.badRequest('No image to delete');
+    }
+
+    // Extract filename from URL and delete from storage
+    const urlParts = existing.imageUrl.split('/');
+    const filename = urlParts[urlParts.length - 1];
+    await deleteImage(NEEDLE_IMAGES_BUCKET, filename);
+
+    // Clear image URL in database
+    const needleType = await req.prisma!.needleType.update({
+      where: { id },
+      data: { imageUrl: null },
+    });
+
+    res.json({ message: 'Image deleted successfully', data: needleType });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /needles/types/barcode/:barcode - Lookup by barcode (for scanning)
+needlesRouter.get('/types/barcode/:barcode', requirePermission('production:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { barcode } = req.params;
+
+    const needleType = await req.prisma!.needleType.findUnique({
+      where: { barcode: barcode as string },
+      include: {
+        _count: {
+          select: {
+            stockBatches: true,
+            machineAllocations: { where: { status: 'INSTALLED' } },
+          },
+        },
+      },
+    });
+
+    if (!needleType) {
+      throw AppError.notFound('Needle type with this barcode not found');
+    }
+
+    // Get current stock
+    const stockAgg = await req.prisma!.needleStockBatch.aggregate({
+      where: { needleTypeId: needleType.id, isActive: true },
+      _sum: { currentQuantity: true },
+    });
+
+    res.json({
+      data: {
+        ...needleType,
+        currentStock: stockAgg._sum.currentQuantity || 0,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /needles/types/:id/regenerate-barcode - Regenerate barcode for existing needle type
+needlesRouter.post('/types/:id/regenerate-barcode', requirePermission('production:write'), validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+
+    const existing = await req.prisma!.needleType.findUnique({ where: { id } });
+    if (!existing) {
+      throw AppError.notFound('Needle type');
+    }
+
+    // Generate new barcode
+    const barcode = generateNeedleBarcode(existing.code);
+
+    const needleType = await req.prisma!.needleType.update({
+      where: { id },
+      data: { barcode },
+    });
+
+    logger.info(`Barcode regenerated for needle type ${existing.code}: ${barcode}`);
+
+    res.json({ message: 'Barcode regenerated', data: needleType });
   } catch (error) {
     next(error);
   }

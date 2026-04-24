@@ -2305,6 +2305,10 @@ model NeedleType {
   brand              String?   @db.VarChar(100)
   supplierCode       String?   @map("supplier_code") @db.VarChar(50) // Supplier's item code
 
+  // Image and Barcode for scanning
+  imageUrl           String?   @map("image_url") @db.VarChar(500) // Photo of the needle
+  barcode            String?   @unique @db.VarChar(50) // Auto-generated barcode for scanning (e.g., NL-0001-ABC123)
+
   // Pricing
   costPerNeedle      Decimal?  @map("cost_per_needle") @db.Decimal(10, 2)
   currency           String    @default("PKR") @db.VarChar(10)

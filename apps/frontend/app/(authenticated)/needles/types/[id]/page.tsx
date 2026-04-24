@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/atoms/Button';
 import { useToast } from '@/contexts/ToastContext';
 import { needleTypesApi } from '@/lib/api/needles';
@@ -13,6 +14,7 @@ import {
   stockStatusLabels,
   StockStatus,
 } from '@/lib/types/needle';
+import { Upload, Copy, RefreshCw, QrCode, Image as ImageIcon, X, Check } from 'lucide-react';
 
 export default function NeedleTypeDetailPage() {
   const router = useRouter();
@@ -22,6 +24,10 @@ export default function NeedleTypeDetailPage() {
 
   const [type, setType] = useState<NeedleTypeWithStock | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isRegeneratingBarcode, setIsRegeneratingBarcode] = useState(false);
+  const [copiedBarcode, setCopiedBarcode] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchType();
@@ -36,6 +42,66 @@ export default function NeedleTypeDetailPage() {
       showToast('error', error.response?.data?.error || 'Failed to load needle type');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('error', 'Image must be less than 5MB');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    try {
+      const result = await needleTypesApi.uploadImage(typeId, file);
+      setType((prev) => prev ? { ...prev, imageUrl: result.imageUrl } : null);
+      showToast('success', 'Image uploaded successfully');
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to upload image');
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    if (!confirm('Are you sure you want to delete this image?')) return;
+
+    try {
+      await needleTypesApi.deleteImage(typeId);
+      setType((prev) => prev ? { ...prev, imageUrl: null } : null);
+      showToast('success', 'Image deleted');
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to delete image');
+    }
+  };
+
+  const handleRegenerateBarcode = async () => {
+    if (!confirm('This will generate a new barcode. Existing printed barcodes will no longer work. Continue?')) return;
+
+    setIsRegeneratingBarcode(true);
+    try {
+      const updated = await needleTypesApi.regenerateBarcode(typeId);
+      setType((prev) => prev ? { ...prev, barcode: updated.barcode } : null);
+      showToast('success', 'Barcode regenerated');
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to regenerate barcode');
+    } finally {
+      setIsRegeneratingBarcode(false);
+    }
+  };
+
+  const copyBarcode = () => {
+    if (type?.barcode) {
+      navigator.clipboard.writeText(type.barcode);
+      setCopiedBarcode(true);
+      setTimeout(() => setCopiedBarcode(false), 2000);
+      showToast('success', 'Barcode copied to clipboard');
     }
   };
 
@@ -68,6 +134,11 @@ export default function NeedleTypeDetailPage() {
 
   const stockStatus = getStockStatus();
 
+  // Generate QR code URL using a public API
+  const qrCodeUrl = type.barcode
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(type.barcode)}`
+    : null;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -93,6 +164,127 @@ export default function NeedleTypeDetailPage() {
           <Link href={`/needles/types/${typeId}/edit`}>
             <Button variant="secondary">Edit</Button>
           </Link>
+        </div>
+      </div>
+
+      {/* Image and Barcode Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Image Card */}
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Needle Photo</h3>
+          <div className="flex items-start gap-4">
+            <div className="w-40 h-40 rounded-xl border-2 border-dashed border-factory-border bg-factory-gray flex items-center justify-center overflow-hidden relative">
+              {type.imageUrl ? (
+                <>
+                  <Image
+                    src={type.imageUrl}
+                    alt={type.name}
+                    fill
+                    className="object-cover"
+                  />
+                  <button
+                    onClick={handleDeleteImage}
+                    className="absolute top-2 right-2 p-1.5 bg-error/90 rounded-full text-white hover:bg-error"
+                    title="Delete image"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <ImageIcon className="w-12 h-12 text-neutral-500" />
+              )}
+            </div>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingImage}
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {isUploadingImage ? 'Uploading...' : type.imageUrl ? 'Change' : 'Upload'}
+              </Button>
+              <p className="text-xs text-neutral-500 mt-2">
+                JPEG, PNG, WebP, GIF (max 5MB)
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Barcode Card */}
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Barcode / QR Code</h3>
+          {type.barcode ? (
+            <div className="flex items-start gap-4">
+              {/* QR Code */}
+              <div className="w-40 h-40 rounded-xl bg-white p-2 flex items-center justify-center">
+                {qrCodeUrl && (
+                  <Image
+                    src={qrCodeUrl}
+                    alt="QR Code"
+                    width={150}
+                    height={150}
+                    className="object-contain"
+                  />
+                )}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="font-mono text-lg text-primary-400 bg-factory-gray px-3 py-2 rounded-lg">
+                    {type.barcode}
+                  </span>
+                  <button
+                    onClick={copyBarcode}
+                    className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors"
+                    title="Copy barcode"
+                  >
+                    {copiedBarcode ? (
+                      <Check className="w-5 h-5 text-success" />
+                    ) : (
+                      <Copy className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-sm text-neutral-400 mb-3">
+                  Scan this QR code or enter the barcode manually to identify this needle type
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRegenerateBarcode}
+                  disabled={isRegeneratingBarcode}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isRegeneratingBarcode ? 'animate-spin' : ''}`} />
+                  Regenerate
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <div className="w-40 h-40 rounded-xl border-2 border-dashed border-factory-border bg-factory-gray flex items-center justify-center">
+                <QrCode className="w-12 h-12 text-neutral-500" />
+              </div>
+              <div>
+                <p className="text-neutral-400 mb-3">No barcode generated</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleRegenerateBarcode}
+                  disabled={isRegeneratingBarcode}
+                >
+                  <QrCode className="w-4 h-4 mr-2" />
+                  Generate Barcode
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
