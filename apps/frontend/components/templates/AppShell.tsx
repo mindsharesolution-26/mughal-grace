@@ -72,9 +72,11 @@ const navigation: NavItem[] = [
     label: 'Products',
     icon: Package,
     children: [
-      { label: 'Products', href: '/products', icon: List },
+      { label: 'Goods Product', href: '/products?view=goods', icon: Package },
+      { label: 'Fabric', href: '/products?view=fabric', icon: Shirt },
       { label: 'Add Product', href: '/products/new', icon: Plus },
       { label: 'Product Ledger', href: '/products/ledger', icon: FileSpreadsheet },
+      { label: 'Fabric Ledger', href: '/products/fabric-ledger', icon: FileSpreadsheet },
     ],
   },
 
@@ -129,6 +131,7 @@ const navigation: NavItem[] = [
       { label: 'Overview', href: '/machines', icon: Cog },
       { label: 'All Machines', href: '/machines/list', icon: ListChecks },
       { label: 'Add Machine', href: '/machines/new', icon: Plus },
+      { label: 'Machine Sizes', href: '/settings/machine-sizes', icon: Ruler },
       { label: 'Maintenance', href: '/machines/maintenance', icon: Wrench },
     ],
   },
@@ -178,7 +181,6 @@ const navigation: NavItem[] = [
       { label: 'Fabric Compositions', href: '/settings/fabric-compositions', icon: Layers },
       { label: 'Fabric Forms', href: '/settings/fabric-forms', icon: Layers },
       { label: 'Fabric Sizes', href: '/settings/fabric-sizes', icon: Ruler },
-      { label: 'Machine Sizes', href: '/settings/machine-sizes', icon: Cog },
       { label: 'Fabrics', href: '/settings/fabrics', icon: Shirt },
       { label: 'Data Import', href: '/settings/import', icon: FileSpreadsheet },
     ],

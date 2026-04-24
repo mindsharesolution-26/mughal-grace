@@ -2,35 +2,57 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
 import { productsApi } from '@/lib/api/products';
+import { fabricsApi, Fabric } from '@/lib/api/fabrics';
 import { Product } from '@/lib/types/product';
 import { api } from '@/lib/api/client';
+import { cn } from '@/lib/utils/cn';
+
+type ViewType = 'goods' | 'fabric';
 
 export default function ProductsPage() {
   const { showToast } = useToast();
+  const searchParams = useSearchParams();
+
+  // Get view from URL param
+  const viewParam = searchParams.get('view') as ViewType | null;
+  const selectedView: ViewType = viewParam === 'fabric' ? 'fabric' : 'goods';
+
   const [products, setProducts] = useState<Product[]>([]);
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSeeding, setIsSeeding] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const isFabricView = selectedView === 'fabric';
+
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchData = async () => {
       try {
         setIsLoading(true);
-        const data = await productsApi.getAll();
-        setProducts(data);
+        if (isFabricView) {
+          // Fetch Fabric Templates from General > Fabrics
+          const data = await fabricsApi.getAll();
+          setFabrics(data);
+        } else {
+          // Fetch Products (GOODS type only)
+          const data = await productsApi.getByType('GOODS');
+          setProducts(data);
+        }
       } catch (error: any) {
-        showToast('error', 'Failed to load products');
+        showToast('error', `Failed to load ${isFabricView ? 'fabrics' : 'products'}`);
       } finally {
         setIsLoading(false);
       }
     };
-    fetchProducts();
-  }, [showToast]);
+    fetchData();
+  }, [showToast, isFabricView]);
 
+  // Filter products
   const filteredProducts = useMemo(() => {
     if (!searchQuery) return products;
     const query = searchQuery.toLowerCase();
@@ -42,20 +64,41 @@ export default function ProductsPage() {
     );
   }, [products, searchQuery]);
 
+  // Filter fabrics
+  const filteredFabrics = useMemo(() => {
+    if (!searchQuery) return fabrics;
+    const query = searchQuery.toLowerCase();
+    return fabrics.filter(
+      (fabric) =>
+        fabric.name.toLowerCase().includes(query) ||
+        fabric.code.toLowerCase().includes(query)
+    );
+  }, [fabrics, searchQuery]);
+
   const stats = useMemo(() => {
+    if (isFabricView) {
+      const totalFabricStock = fabrics.reduce(
+        (sum, f) => sum + parseFloat(f.currentStock || '0'),
+        0
+      );
+      return {
+        totalItems: fabrics.length,
+        totalStock: totalFabricStock,
+      };
+    }
     const totalProducts = products.length;
     const totalStock = products.reduce(
       (sum, p) => sum + parseFloat(p.currentStock || '0'),
       0
     );
-    return { totalProducts, totalStock };
-  }, [products]);
+    return { totalItems: totalProducts, totalStock };
+  }, [products, fabrics, isFabricView]);
 
   const seedDummyData = async () => {
     setIsSeeding(true);
     try {
       await api.post('/products/seed-dummy');
-      const data = await productsApi.getAll();
+      const data = await productsApi.getByType('GOODS');
       setProducts(data);
       showToast('success', 'Demo products created successfully!');
     } catch (error: any) {
@@ -65,52 +108,69 @@ export default function ProductsPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-      </div>
-    );
-  }
+  const itemLabel = isFabricView ? 'Fabric' : 'Product';
+  const itemLabelPlural = isFabricView ? 'Fabrics' : 'Products';
+  const currentItems = isFabricView ? filteredFabrics : filteredProducts;
+  const allItems = isFabricView ? fabrics : products;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Products</h1>
-          <p className="text-neutral-400 mt-1">Manage your product inventory</p>
+          <h1 className="text-2xl font-bold text-white">
+            {isFabricView ? 'Fabric' : 'Goods Product'}
+          </h1>
         </div>
         <div className="flex gap-3">
-          {products.length === 0 && (
+          {products.length === 0 && !isFabricView && (
             <Button variant="secondary" onClick={seedDummyData} disabled={isSeeding}>
               {isSeeding ? 'Creating...' : 'Add Demo Data'}
             </Button>
           )}
-          <Link href="/products/new">
-            <Button>
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Product
-            </Button>
-          </Link>
+          {/* Only show Add button for Goods view - Fabrics come from General > Fabrics */}
+          {!isFabricView && (
+            <Link href="/products/new">
+              <Button>
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Product
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Total Products */}
-        <div className="bg-gradient-to-br from-primary-500/10 to-primary-600/5 rounded-2xl border border-primary-500/20 p-6">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+        {/* Total Items */}
+        <div className={cn(
+          'rounded-2xl border p-6',
+          isFabricView
+            ? 'bg-gradient-to-br from-violet-500/10 to-violet-600/5 border-violet-500/20'
+            : 'bg-gradient-to-br from-primary-500/10 to-primary-600/5 border-primary-500/20'
+        )}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-primary-400">Total Products</p>
-              <p className="text-3xl font-bold text-white mt-1">{stats.totalProducts}</p>
+              <p className={cn('text-sm font-medium', isFabricView ? 'text-violet-400' : 'text-primary-400')}>
+                Total {itemLabelPlural}
+              </p>
+              <p className="text-3xl font-bold text-white mt-1">{stats.totalItems}</p>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-primary-500/20 flex items-center justify-center">
-              <svg className="w-6 h-6 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
+            <div className={cn(
+              'w-12 h-12 rounded-xl flex items-center justify-center',
+              isFabricView ? 'bg-violet-500/20' : 'bg-primary-500/20'
+            )}>
+              {isFabricView ? (
+                <svg className="w-6 h-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+              )}
             </div>
           </div>
         </div>
@@ -141,96 +201,172 @@ export default function ProductsPage() {
           </svg>
         </div>
         <Input
-          placeholder="Search by name, article number, or QR code..."
+          placeholder={isFabricView ? 'Search by name or article code...' : 'Search by name, article number, or QR code...'}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-12"
         />
       </div>
 
-      {/* Products List */}
-      <div className="bg-factory-dark rounded-2xl border border-factory-border overflow-hidden">
-        {/* Table Header */}
-        <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-factory-gray/50 border-b border-factory-border">
-          <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-            Article Number
-          </div>
-          <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-            QR Code
-          </div>
-          <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider text-right">
-            Quantity
-          </div>
-          <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider text-center">
-            Ledger
-          </div>
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
         </div>
-
-        {/* Table Body */}
-        <div className="divide-y divide-factory-border">
-          {filteredProducts.map((product) => (
-            <div
-              key={product.id}
-              className="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-factory-gray/30 transition-colors items-center"
-            >
-              {/* Article Number */}
-              <div className="col-span-3">
-                <span className="font-mono text-sm text-primary-400 font-medium">
-                  {product.articleNumber || '-'}
-                </span>
-                <p className="text-xs text-neutral-500 mt-0.5 truncate">{product.name}</p>
-              </div>
-
-              {/* QR Code */}
-              <div className="col-span-3">
-                <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-factory-gray text-sm font-mono text-neutral-300">
-                  {product.qrCode}
-                </span>
-              </div>
-
-              {/* Quantity */}
-              <div className="col-span-3 text-right">
-                <span className="text-lg font-semibold text-white">
-                  {parseFloat(product.currentStock || '0').toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                </span>
-              </div>
-
-              {/* Ledger */}
-              <div className="col-span-3 text-center">
-                <Link href={`/products/${product.id}`}>
-                  <Button variant="ghost" size="sm">
-                    <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    View Ledger
-                  </Button>
-                </Link>
-              </div>
+      ) : (
+        /* List */
+        <div className="bg-factory-dark rounded-2xl border border-factory-border overflow-hidden">
+          {/* Table Header - Same structure for both views */}
+          <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-factory-gray/50 border-b border-factory-border">
+            <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+              {isFabricView ? 'Article Code' : 'Article Number'}
             </div>
-          ))}
-        </div>
-
-        {/* Empty State */}
-        {filteredProducts.length === 0 && (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 rounded-full bg-factory-gray mx-auto flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
+            <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider">
+              QR Code
             </div>
-            <p className="text-neutral-400 mb-4">
-              {products.length === 0
-                ? 'No products yet. Add your first product!'
-                : 'No products match your search'}
-            </p>
-            {products.length === 0 && (
-              <Link href="/products/new">
-                <Button>Add Product</Button>
-              </Link>
+            <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider text-right">
+              Quantity
+            </div>
+            <div className="col-span-3 text-xs font-semibold text-neutral-400 uppercase tracking-wider text-center">
+              Action
+            </div>
+          </div>
+
+          {/* Table Body */}
+          <div className="divide-y divide-factory-border">
+            {isFabricView ? (
+              // Fabric View - Show Fabric Templates
+              filteredFabrics.map((fabric) => (
+                <div
+                  key={fabric.id}
+                  className="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-factory-gray/30 transition-colors items-center"
+                >
+                  {/* Article Code */}
+                  <div className="col-span-3">
+                    <span className="font-mono text-sm font-medium text-violet-400">
+                      {fabric.code}
+                    </span>
+                    <p className="text-xs text-neutral-500 mt-0.5 truncate">{fabric.name}</p>
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="col-span-3">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-factory-gray text-sm font-mono text-neutral-300">
+                      {fabric.qrPayload || '-'}
+                    </span>
+                  </div>
+
+                  {/* Quantity */}
+                  <div className="col-span-3 text-right">
+                    <span className="text-lg font-semibold text-white">
+                      {parseFloat(fabric.currentStock || '0').toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {/* View Details */}
+                  <div className="col-span-3 text-center">
+                    <Link href={`/products/fabric/${fabric.id}`}>
+                      <Button variant="ghost" size="sm">
+                        <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        View
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            ) : (
+              // Goods Product View - Show Products (GOODS)
+              filteredProducts.map((product) => (
+                <div
+                  key={product.id}
+                  className="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-factory-gray/30 transition-colors items-center"
+                >
+                  {/* Article Number */}
+                  <div className="col-span-3">
+                    <span className="font-mono text-sm font-medium text-primary-400">
+                      {product.articleNumber || '-'}
+                    </span>
+                    <p className="text-xs text-neutral-500 mt-0.5 truncate">{product.name}</p>
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="col-span-3">
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-factory-gray text-sm font-mono text-neutral-300">
+                      {product.qrCode}
+                    </span>
+                  </div>
+
+                  {/* Quantity */}
+                  <div className="col-span-3 text-right">
+                    <span className="text-lg font-semibold text-white">
+                      {parseFloat(product.currentStock || '0').toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {/* View Details */}
+                  <div className="col-span-3 text-center">
+                    <Link href={`/products/${product.id}`}>
+                      <Button variant="ghost" size="sm">
+                        <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        View
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
             )}
           </div>
-        )}
-      </div>
+
+          {/* Empty State */}
+          {currentItems.length === 0 && (
+            <div className="text-center py-16">
+              <div className={cn(
+                'w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4',
+                isFabricView ? 'bg-violet-500/10' : 'bg-factory-gray'
+              )}>
+                {isFabricView ? (
+                  <svg className="w-8 h-8 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                  </svg>
+                ) : (
+                  <svg className="w-8 h-8 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                )}
+              </div>
+              <p className="text-neutral-400 mb-4">
+                {allItems.length === 0
+                  ? isFabricView
+                    ? 'No fabrics yet. Add fabrics from General > Fabrics.'
+                    : 'No products yet. Add your first product!'
+                  : `No ${itemLabelPlural.toLowerCase()} match your search`}
+              </p>
+              {/* Only show Add button for Products - Fabrics come from General > Fabrics */}
+              {allItems.length === 0 && !isFabricView && (
+                <Link href="/products/new">
+                  <Button>Add Product</Button>
+                </Link>
+              )}
+              {allItems.length === 0 && isFabricView && (
+                <Link href="/settings/fabrics">
+                  <Button variant="secondary">
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    Go to Fabrics
+                  </Button>
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

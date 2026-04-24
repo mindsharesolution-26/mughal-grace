@@ -10,6 +10,7 @@ import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
 import { productsApi } from '@/lib/api/products';
+import { fabricsApi } from '@/lib/api/fabrics';
 import {
   departmentsApi,
   groupsApi,
@@ -17,8 +18,12 @@ import {
   brandsApi,
   colorsApi,
   fabricSizesApi,
+  gradesApi,
+  fabricTypesApi,
+  fabricCompositionsApi,
 } from '@/lib/api/settings';
-import type { Product } from '@/lib/types/product';
+import { machinesApi } from '@/lib/api/machines';
+import type { Product, FabricLookup } from '@/lib/types/product';
 import type {
   Department,
   Group,
@@ -26,7 +31,11 @@ import type {
   Brand,
   Color,
   FabricSize,
+  Grade,
+  FabricType,
+  FabricCompositionType,
 } from '@/lib/types/settings';
+import type { MachineLookup } from '@/lib/types/machine';
 
 // Form validation schema
 const productSchema = z.object({
@@ -37,9 +46,20 @@ const productSchema = z.object({
   brandId: z.coerce.number().optional().nullable(),
   colorId: z.coerce.number().optional().nullable(),
   fabricSizeId: z.coerce.number().optional().nullable(),
+  // Fabric Master Data Reference
+  fabricId: z.coerce.number().optional().nullable(),
   articleNumber: z.string().optional(),
   description: z.string().optional(),
   isActive: z.boolean(),
+  // Fabric/Production fields
+  machineId: z.coerce.number().optional().nullable(),
+  gradeId: z.coerce.number().optional().nullable(),
+  fabricTypeId: z.coerce.number().optional().nullable(),
+  fabricCompositionId: z.coerce.number().optional().nullable(),
+  gsm: z.coerce.number().positive().optional().nullable(),
+  width: z.coerce.number().positive().optional().nullable(),
+  widthUnit: z.enum(['inch', 'cm']).optional().nullable(),
+  isTube: z.boolean().optional(),
 });
 
 type ProductForm = z.infer<typeof productSchema>;
@@ -62,6 +82,13 @@ export default function EditProductPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [colors, setColors] = useState<Color[]>([]);
   const [fabricSizes, setFabricSizes] = useState<FabricSize[]>([]);
+  // Fabric Master Data
+  const [fabrics, setFabrics] = useState<FabricLookup[]>([]);
+  // Fabric/Production lookup data
+  const [machines, setMachines] = useState<MachineLookup[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [fabricTypes, setFabricTypes] = useState<FabricType[]>([]);
+  const [fabricCompositions, setFabricCompositions] = useState<FabricCompositionType[]>([]);
 
   const {
     register,
@@ -74,6 +101,8 @@ export default function EditProductPage() {
     resolver: zodResolver(productSchema),
     defaultValues: {
       isActive: true,
+      isTube: false,
+      widthUnit: 'inch',
     },
   });
 
@@ -97,7 +126,7 @@ export default function EditProductPage() {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        const [productData, depts, grps, mats, brnds, clrs, sizes] = await Promise.all([
+        const [productData, depts, grps, mats, brnds, clrs, sizes, fabs, machs, grds, fabTypes, fabComps] = await Promise.all([
           productsApi.getById(productId),
           departmentsApi.getAll().catch(() => []),
           groupsApi.getAll().catch(() => []),
@@ -105,6 +134,11 @@ export default function EditProductPage() {
           brandsApi.getAll().catch(() => []),
           colorsApi.getAll().catch(() => []),
           fabricSizesApi.getAll().catch(() => []),
+          fabricsApi.getLookup().catch(() => []),
+          machinesApi.getLookup().catch(() => []),
+          gradesApi.getAll().catch(() => []),
+          fabricTypesApi.getAll().catch(() => []),
+          fabricCompositionsApi.getAll().catch(() => []),
         ]);
 
         setProduct(productData);
@@ -114,6 +148,11 @@ export default function EditProductPage() {
         setBrands(brnds.filter((b) => b.isActive));
         setColors(clrs.filter((c) => c.isActive));
         setFabricSizes(sizes.filter((s) => s.isActive));
+        setFabrics(fabs); // FabricLookup already returns active fabrics
+        setMachines(machs); // MachineLookup already returns active machines
+        setGrades(grds.filter((g) => g.isActive));
+        setFabricTypes(fabTypes.filter((t) => t.isActive));
+        setFabricCompositions(fabComps.filter((c) => c.isActive));
 
         // Set filtered groups based on product's department
         if (productData.departmentId) {
@@ -133,8 +172,18 @@ export default function EditProductPage() {
           brandId: productData.brandId,
           colorId: productData.colorId,
           fabricSizeId: productData.fabricSizeId,
+          fabricId: productData.fabricId,
           description: productData.description || '',
           isActive: productData.isActive,
+          // Fabric/Production fields
+          machineId: productData.machineId,
+          gradeId: productData.gradeId,
+          fabricTypeId: productData.fabricTypeId,
+          fabricCompositionId: productData.fabricCompositionId,
+          gsm: productData.gsm ? Number(productData.gsm) : null,
+          width: productData.width ? Number(productData.width) : null,
+          widthUnit: (productData.widthUnit as 'inch' | 'cm') || 'inch',
+          isTube: productData.isTube || false,
         });
       } catch (error: any) {
         showToast('error', 'Failed to load product');
@@ -158,8 +207,18 @@ export default function EditProductPage() {
         brandId: data.brandId || undefined,
         colorId: data.colorId || undefined,
         fabricSizeId: data.fabricSizeId || undefined,
+        fabricId: data.fabricId || undefined,
         description: data.description || undefined,
         isActive: data.isActive,
+        // Fabric/Production fields
+        machineId: data.machineId || undefined,
+        gradeId: data.gradeId || undefined,
+        fabricTypeId: data.fabricTypeId || undefined,
+        fabricCompositionId: data.fabricCompositionId || undefined,
+        gsm: data.gsm || undefined,
+        width: data.width || undefined,
+        widthUnit: data.widthUnit || undefined,
+        isTube: data.isTube,
       });
 
       showToast('success', `Product "${data.name}" updated successfully!`);
@@ -368,6 +427,172 @@ export default function EditProductPage() {
                 ))}
               </select>
             </div>
+          </div>
+        </div>
+
+        {/* Link to Fabric Master Data */}
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">
+            Fabric Master Data (Optional)
+          </h2>
+          <p className="text-sm text-neutral-400 mb-4">
+            Link this product to pre-defined fabric master data. This is optional and helps maintain consistency.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Fabric */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Fabric Template
+              </label>
+              <select
+                {...register('fabricId')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">No Fabric Template</option>
+                {fabrics.map((fabric) => (
+                  <option key={fabric.id} value={fabric.id}>
+                    {fabric.name} {fabric.articleNumber ? `(${fabric.articleNumber})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-neutral-500 mt-1">
+                Select a fabric template to inherit its properties
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Fabric Properties */}
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">
+            Fabric Properties
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Machine */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Machine
+              </label>
+              <select
+                {...register('machineId')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select Machine</option>
+                {machines.map((machine) => (
+                  <option key={machine.id} value={machine.id}>
+                    {machine.machineNumber} - {machine.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Grade */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Grade
+              </label>
+              <select
+                {...register('gradeId')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select Grade</option>
+                {grades.map((grade) => (
+                  <option key={grade.id} value={grade.id}>
+                    {grade.code} - {grade.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Fabric Type */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Fabric Type
+              </label>
+              <select
+                {...register('fabricTypeId')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select Fabric Type</option>
+                {fabricTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.code} - {type.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Fabric Composition */}
+            <div>
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Fabric Composition
+              </label>
+              <select
+                {...register('fabricCompositionId')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select Composition</option>
+                {fabricCompositions.map((comp) => (
+                  <option key={comp.id} value={comp.id}>
+                    {comp.code} - {comp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* GSM */}
+            <Input
+              label="GSM (Weight)"
+              type="number"
+              placeholder="180"
+              error={errors.gsm?.message}
+              {...register('gsm')}
+            />
+
+            {/* Width */}
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  label="Width"
+                  type="number"
+                  placeholder="72"
+                  error={errors.width?.message}
+                  {...register('width')}
+                />
+              </div>
+              <div className="w-24">
+                <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                  Unit
+                </label>
+                <select
+                  {...register('widthUnit')}
+                  className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="inch">Inch</option>
+                  <option value="cm">CM</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Is Tube */}
+          <div className="mt-4 flex items-center justify-between p-4 bg-factory-gray rounded-xl">
+            <div>
+              <p className="text-white font-medium">Tubular Fabric</p>
+              <p className="text-sm text-neutral-400">
+                Enable if this is a tubular knit fabric
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                {...register('isTube')}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-factory-border rounded-full peer peer-checked:bg-primary-500 peer-focus:ring-2 peer-focus:ring-primary-500/50 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full" />
+            </label>
           </div>
         </div>
 

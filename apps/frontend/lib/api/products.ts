@@ -3,6 +3,7 @@ import {
   Product,
   ProductFormData,
   ProductLookup,
+  ProductType,
   StockMovement,
   StockMovementInput,
   LedgerEntry,
@@ -138,6 +139,51 @@ export const productsApi = {
     };
   }> {
     const response = await api.get<{ data: any }>('/products/production-logs', { params });
+    return response.data.data;
+  },
+
+  /**
+   * Get products pending approval (admin only)
+   */
+  async getPendingApproval(): Promise<Product[]> {
+    const response = await api.get<{ data: Product[] }>('/products/pending-approval');
+    return response.data.data;
+  },
+
+  /**
+   * Approve a pending product (admin only)
+   */
+  async approve(id: number): Promise<Product> {
+    const response = await api.post<{ message: string; data: Product }>(
+      `/products/${id}/approve`
+    );
+    return response.data.data;
+  },
+
+  /**
+   * Reject a pending product (admin only)
+   */
+  async reject(id: number, rejectionReason?: string): Promise<Product> {
+    const response = await api.post<{ message: string; data: Product }>(
+      `/products/${id}/reject`,
+      { rejectionReason }
+    );
+    return response.data.data;
+  },
+
+  /**
+   * Get all products (with optional status and type filter)
+   */
+  async getAllWithStatus(params?: { status?: string; showAll?: boolean; type?: ProductType }): Promise<Product[]> {
+    const response = await api.get<{ data: Product[] }>('/products', { params });
+    return response.data.data;
+  },
+
+  /**
+   * Get products by type (FABRIC or GOODS)
+   */
+  async getByType(type: ProductType): Promise<Product[]> {
+    const response = await api.get<{ data: Product[] }>('/products', { params: { type } });
     return response.data.data;
   },
 };

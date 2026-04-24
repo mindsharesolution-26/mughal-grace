@@ -312,6 +312,8 @@ export interface Fabric {
   color?: FabricColorRelation | null;
   machineId: number | null;
   machine?: { id: number; machineNumber: string; name: string | null; gauge: number | null; diameter: number | null } | null;
+  gradeId: number | null;
+  grade?: FabricRelation | null;
   // Fabric Type & Composition (master data relations)
   fabricTypeId: number | null;
   fabricType?: FabricRelation | null;
@@ -344,6 +346,7 @@ export interface FabricFormData {
   brandId?: number | null;
   colorId?: number | null;
   machineId?: number | null;
+  gradeId?: number | null;
   // Fabric Type & Composition (master data relations)
   fabricTypeId?: number | null;
   fabricCompositionId?: number | null;

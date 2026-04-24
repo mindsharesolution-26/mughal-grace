@@ -408,7 +408,9 @@ model Machine {
   downtimeLogs      DowntimeLog[]
   needleAllocations NeedleMachineAllocation[]
   fabrics           Fabric[]
+  products          Product[]  @relation("ProductMachine")
   yarnOutwards      YarnOutward[]
+  rolls             Roll[]
 
   @@index([status])
   @@map("machines")
@@ -535,9 +537,15 @@ enum DowntimeReason {
 model Roll {
   id              Int                 @id @default(autoincrement())
   rollNumber      String              @unique @map("roll_number") @db.VarChar(50)
+  qrCode          String?             @unique @map("qr_code") @db.VarChar(50)
   productionLogId Int?                @map("production_log_id")
   machineId       Int                 @map("machine_id")
+  machine         Machine             @relation(fields: [machineId], references: [id])
   fabricType      String              @map("fabric_type") @db.VarChar(100)
+
+  // Link to Fabric template (for daily production)
+  fabricId        Int?                @map("fabric_id")
+  fabric          Fabric?             @relation(fields: [fabricId], references: [id])
   width           Decimal?            @db.Decimal(6, 2)
   gsm             Int?
   greyWeight      Decimal             @map("grey_weight") @db.Decimal(10, 3)
@@ -559,6 +567,7 @@ model Roll {
   @@index([status])
   @@index([fabricType])
   @@index([producedAt])
+  @@index([fabricId])
   @@map("rolls")
   @@schema("tenant_template")
 }
@@ -1422,6 +1431,7 @@ model AgingSnapshot {
 model Product {
   id              Int              @id @default(autoincrement())
   name            String           @db.VarChar(255)
+  type            ProductType      @default(GOODS)  // FABRIC or GOODS
   articleNumber   String?          @unique @map("article_number") @db.VarChar(50)
   qrCode          String           @unique @map("qr_code") @db.VarChar(50)
 
@@ -1432,6 +1442,28 @@ model Product {
   brandId         Int?             @map("brand_id")
   colorId         Int?             @map("color_id")
   fabricSizeId    Int?             @map("fabric_size_id")
+
+  // Fabric/Production Relations
+  machineId            Int?              @map("machine_id")
+  gradeId              Int?              @map("grade_id")
+  fabricTypeId         Int?              @map("fabric_type_id")
+  fabricCompositionId  Int?              @map("fabric_composition_id")
+
+  // Fabric Properties
+  gsm           Decimal?  @db.Decimal(6, 2)  // Grams per square meter
+  width         Decimal?  @db.Decimal(6, 2)  // Width value
+  widthUnit     String?   @default("inch") @map("width_unit") @db.VarChar(10) // inch, cm
+  isTube        Boolean   @default(false) @map("is_tube") // Tube fabric (Yes/No)
+
+  // Fabric Master Data Reference (optional link to pre-defined fabric)
+  fabricId      Int?      @map("fabric_id")
+
+  // Approval Workflow
+  approvalStatus    ProductApprovalStatus  @default(PENDING) @map("approval_status")
+  approvedBy        Int?                   @map("approved_by")
+  approvedAt        DateTime?              @map("approved_at")
+  rejectionReason   String?                @map("rejection_reason") @db.Text
+  createdBy         Int?                   @map("created_by")
 
   // Additional Info
   description     String?          @db.Text
@@ -1450,13 +1482,18 @@ model Product {
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
   // Relations
-  department      Department?      @relation(fields: [departmentId], references: [id])
-  group           Group?           @relation(fields: [groupId], references: [id])
-  material        Material?        @relation(fields: [materialId], references: [id])
-  brand           Brand?           @relation(fields: [brandId], references: [id])
-  color           Color?           @relation(fields: [colorId], references: [id])
-  fabricSize      FabricSize?      @relation(fields: [fabricSizeId], references: [id])
-  stockMovements  StockMovement[]
+  department         Department?         @relation(fields: [departmentId], references: [id])
+  group              Group?              @relation(fields: [groupId], references: [id])
+  material           Material?           @relation(fields: [materialId], references: [id])
+  brand              Brand?              @relation(fields: [brandId], references: [id])
+  color              Color?              @relation(fields: [colorId], references: [id])
+  fabricSize         FabricSize?         @relation(fields: [fabricSizeId], references: [id])
+  machine            Machine?            @relation("ProductMachine", fields: [machineId], references: [id])
+  grade              Grade?              @relation("ProductGrade", fields: [gradeId], references: [id])
+  fabricType         FabricType?         @relation("ProductFabricType", fields: [fabricTypeId], references: [id])
+  fabricComposition  FabricComposition?  @relation("ProductFabricComposition", fields: [fabricCompositionId], references: [id])
+  fabric             Fabric?             @relation("ProductFabric", fields: [fabricId], references: [id])
+  stockMovements     StockMovement[]
 
   @@index([departmentId])
   @@index([groupId])
@@ -1464,6 +1501,13 @@ model Product {
   @@index([brandId])
   @@index([colorId])
   @@index([fabricSizeId])
+  @@index([machineId])
+  @@index([gradeId])
+  @@index([fabricTypeId])
+  @@index([fabricCompositionId])
+  @@index([fabricId])
+  @@index([approvalStatus])
+  @@index([createdBy])
   @@map("products")
   @@schema("tenant_template")
 }
@@ -1492,6 +1536,21 @@ model StockMovement {
 enum StockMovementType {
   IN
   OUT
+
+  @@schema("tenant_template")
+}
+
+enum ProductApprovalStatus {
+  PENDING   // Awaiting Super Admin approval
+  APPROVED  // Approved by Super Admin
+  REJECTED  // Rejected by Super Admin
+
+  @@schema("tenant_template")
+}
+
+enum ProductType {
+  FABRIC    // Fabric products (sale-ready rolls) - requires fabricId
+  GOODS     // Other products (finished goods, etc.)
 
   @@schema("tenant_template")
 }
@@ -1761,6 +1820,8 @@ model Fabric {
   color         Color?    @relation(fields: [colorId], references: [id])
   machineId     Int?      @map("machine_id")
   machine       Machine?  @relation(fields: [machineId], references: [id])
+  gradeId       Int?      @map("grade_id")
+  grade         Grade?    @relation("FabricGrade", fields: [gradeId], references: [id])
 
   // Fabric Type & Composition (master data relations)
   fabricTypeId        Int?              @map("fabric_type_id")
@@ -1775,6 +1836,9 @@ model Fabric {
   width         Decimal?  @db.Decimal(6, 2) // Width value
   widthUnit     String?   @default("inch") @map("width_unit") @db.VarChar(10) // inch, cm
   isTube        Boolean   @default(false) @map("is_tube") // Tube fabric (Yes/No)
+
+  // Stock tracking
+  currentStock  Decimal   @default(0) @map("current_stock") @db.Decimal(12, 3)
 
   description   String?   @db.Text
   notes         String?   @db.Text
@@ -1794,9 +1858,42 @@ model Fabric {
   @@index([brandId])
   @@index([colorId])
   @@index([machineId])
+  @@index([gradeId])
   @@index([fabricTypeId])
   @@index([fabricCompositionId])
+
+  // Reverse relation: Products linked to this Fabric
+  products      Product[] @relation("ProductFabric")
+
+  // Reverse relation: Rolls produced from this Fabric template
+  rolls         Roll[]
+
+  // Reverse relation: Stock movements for this Fabric
+  stockMovements FabricStockMovement[]
+
   @@map("fabrics")
+  @@schema("tenant_template")
+}
+
+// Fabric Stock Movement (tracks IN/OUT for Fabric inventory)
+model FabricStockMovement {
+  id              Int               @id @default(autoincrement())
+  fabricId        Int               @map("fabric_id")
+  type            StockMovementType
+  quantity        Decimal           @db.Decimal(12, 3)
+  referenceNumber String?           @map("reference_number") @db.VarChar(50)
+  sourceType      String?           @map("source_type") @db.VarChar(50)
+  destinationType String?           @map("destination_type") @db.VarChar(50)
+  notes           String?           @db.Text
+  createdBy       Int?              @map("created_by")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  fabric          Fabric            @relation(fields: [fabricId], references: [id])
+
+  @@index([fabricId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("fabric_stock_movements")
   @@schema("tenant_template")
 }
 
@@ -1816,6 +1913,7 @@ model FabricType {
 
   // Relations
   fabrics      Fabric[]
+  products     Product[]  @relation("ProductFabricType")
 
   @@index([isActive])
   @@map("fabric_types")
@@ -1838,6 +1936,7 @@ model FabricComposition {
 
   // Relations
   fabrics      Fabric[]
+  products     Product[]  @relation("ProductFabricComposition")
 
   @@index([isActive])
   @@map("fabric_compositions")
@@ -1883,6 +1982,9 @@ model Grade {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
+  // Relations
+  fabrics     Fabric[]  @relation("FabricGrade")
+  products    Product[] @relation("ProductGrade")
 
   @@index([isActive])
   @@index([level])

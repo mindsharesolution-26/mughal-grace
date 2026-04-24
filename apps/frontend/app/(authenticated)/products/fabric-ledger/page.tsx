@@ -5,8 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
-import { productsApi, LedgerEntry } from '@/lib/api/products';
-import { ProductLookup } from '@/lib/types/product';
+import { fabricsApi, Fabric, FabricLedgerEntry, FabricLedgerLookup } from '@/lib/api/fabrics';
 import {
   Search,
   QrCode,
@@ -16,48 +15,71 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   FileSpreadsheet,
-  Package,
+  Shirt,
 } from 'lucide-react';
 
-export default function ProductLedgerPage() {
+export default function FabricLedgerPage() {
   const { showToast } = useToast();
   const searchParams = useSearchParams();
 
-  // Check for product param to auto-load
-  const productParam = searchParams.get('product');
+  // Check for fabric param to auto-load
+  const fabricParam = searchParams.get('fabric');
 
-  // Product search state
-  const [products, setProducts] = useState<ProductLookup[]>([]);
+  // Fabric search state
+  const [fabrics, setFabrics] = useState<Fabric[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [qrInput, setQrInput] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<ProductLookup | null>(null);
+  const [selectedFabric, setSelectedFabric] = useState<FabricLedgerLookup | null>(null);
 
   // Date filters
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
   // Ledger data
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [entries, setEntries] = useState<FabricLedgerEntry[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Load products for dropdown
+  // Load fabrics for dropdown
   useEffect(() => {
-    const loadProducts = async () => {
+    const loadFabrics = async () => {
       try {
-        const data = await productsApi.getLookup();
-        setProducts(data);
+        const data = await fabricsApi.getAll();
+        setFabrics(data);
       } catch (error) {
-        console.error('Failed to load products:', error);
+        console.error('Failed to load fabrics:', error);
       }
     };
-    loadProducts();
+    loadFabrics();
   }, []);
 
-  // Load ledger for selected product
-  const loadLedger = useCallback(async (productId: number, page = 1) => {
+  // Auto-load fabric from URL param
+  useEffect(() => {
+    if (fabricParam && fabrics.length > 0) {
+      const fabricId = parseInt(fabricParam, 10);
+      if (!isNaN(fabricId)) {
+        const fabric = fabrics.find(f => f.id === fabricId);
+        if (fabric) {
+          setSearchQuery(fabric.name);
+          loadLedger(fabricId);
+        }
+      }
+    }
+  }, [fabricParam, fabrics, loadLedger]);
+
+  // Filter fabrics based on search
+  const filteredFabrics = fabrics.filter((f) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      f.name.toLowerCase().includes(query) ||
+      f.code.toLowerCase().includes(query)
+    );
+  });
+
+  // Load ledger for selected fabric
+  const loadLedger = useCallback(async (fabricId: number, page = 1) => {
     setIsLoading(true);
     try {
       const params: { startDate?: string; endDate?: string; page: number; limit: number } = {
@@ -67,8 +89,8 @@ export default function ProductLedgerPage() {
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
 
-      const data = await productsApi.getLedger(productId, params);
-      setSelectedProduct(data.product);
+      const data = await fabricsApi.getLedger(fabricId, params);
+      setSelectedFabric(data.fabric);
       setEntries(data.entries);
       setPagination(data.pagination);
     } catch (error: any) {
@@ -78,35 +100,11 @@ export default function ProductLedgerPage() {
     }
   }, [startDate, endDate, pagination.limit, showToast]);
 
-  // Auto-load product from URL param
-  useEffect(() => {
-    if (productParam && products.length > 0) {
-      const productId = parseInt(productParam, 10);
-      if (!isNaN(productId)) {
-        const product = products.find(p => p.id === productId);
-        if (product) {
-          setSearchQuery(product.name);
-          loadLedger(productId);
-        }
-      }
-    }
-  }, [productParam, products, loadLedger]);
-
-  // Filter products based on search
-  const filteredProducts = products.filter((p) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(query) ||
-      (p.articleNumber && p.articleNumber.toLowerCase().includes(query)) ||
-      (p.qrCode && p.qrCode.toLowerCase().includes(query))
-    );
-  });
-
-  // Handle product selection
-  const handleSelectProduct = (product: ProductLookup) => {
-    setSearchQuery(product.name);
+  // Handle fabric selection
+  const handleSelectFabric = (fabric: Fabric) => {
+    setSearchQuery(fabric.name);
     setShowDropdown(false);
-    loadLedger(product.id);
+    loadLedger(fabric.id);
   };
 
   // Handle QR code search
@@ -115,23 +113,31 @@ export default function ProductLedgerPage() {
 
     setIsSearching(true);
     try {
-      // Find product by QR code or article number
-      const product = products.find(
-        (p) =>
-          p.qrCode === qrInput.trim().toUpperCase() ||
-          (p.articleNumber && p.articleNumber.toUpperCase() === qrInput.trim().toUpperCase())
+      // Find fabric by code or QR payload
+      const fabric = fabrics.find(
+        (f) =>
+          f.code === qrInput.trim().toUpperCase() ||
+          f.qrPayload === qrInput.trim().toUpperCase()
       );
 
-      if (product) {
-        setSelectedProduct(product);
-        setSearchQuery(product.name);
+      if (fabric) {
+        setSelectedFabric({
+          id: fabric.id,
+          code: fabric.code,
+          name: fabric.name,
+          qrPayload: fabric.qrPayload,
+          currentStock: fabric.currentStock,
+          department: fabric.department ? { id: fabric.department.id, name: fabric.department.name } : null,
+          group: fabric.group ? { id: fabric.group.id, name: fabric.group.name } : null,
+        });
+        setSearchQuery(fabric.name);
         setQrInput('');
-        loadLedger(product.id);
+        loadLedger(fabric.id);
       } else {
-        showToast('error', 'Product not found');
+        showToast('error', 'Fabric not found');
       }
     } catch (error: any) {
-      showToast('error', error.response?.data?.error || 'Product not found');
+      showToast('error', error.response?.data?.error || 'Fabric not found');
     } finally {
       setIsSearching(false);
     }
@@ -139,15 +145,15 @@ export default function ProductLedgerPage() {
 
   // Handle date filter apply
   const handleApplyFilters = () => {
-    if (selectedProduct) {
-      loadLedger(selectedProduct.id, 1);
+    if (selectedFabric) {
+      loadLedger(selectedFabric.id, 1);
     }
   };
 
   // Handle pagination
   const handlePageChange = (newPage: number) => {
-    if (selectedProduct && newPage >= 1 && newPage <= pagination.totalPages) {
-      loadLedger(selectedProduct.id, newPage);
+    if (selectedFabric && newPage >= 1 && newPage <= pagination.totalPages) {
+      loadLedger(selectedFabric.id, newPage);
     }
   };
 
@@ -165,7 +171,7 @@ export default function ProductLedgerPage() {
     const colors: Record<string, string> = {
       'Stock In': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
       'Stock Out': 'bg-red-500/20 text-red-400 border-red-500/30',
-      'Sale': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+      'Production': 'bg-blue-500/20 text-blue-400 border-blue-500/30',
       'Adjustment': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
     };
     return colors[reference] || 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30';
@@ -175,22 +181,22 @@ export default function ProductLedgerPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Product Ledger</h1>
-        <p className="text-neutral-400 mt-1">View stock movement history for products</p>
+        <h1 className="text-2xl font-bold text-white">Fabric Ledger</h1>
+        <p className="text-neutral-400 mt-1">View stock movement history for fabrics</p>
       </div>
 
       {/* Search Section */}
       <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Product Search */}
+          {/* Fabric Search */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-neutral-300">Search Product</label>
+            <label className="text-sm font-medium text-neutral-300">Search Fabric</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Search className="w-5 h-5 text-neutral-500" />
               </div>
               <Input
-                placeholder="Search by name or article number..."
+                placeholder="Search by name or fabric code..."
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -200,17 +206,17 @@ export default function ProductLedgerPage() {
                 className="pl-12"
               />
               {/* Dropdown */}
-              {showDropdown && searchQuery && filteredProducts.length > 0 && (
+              {showDropdown && searchQuery && filteredFabrics.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-factory-gray border border-factory-border rounded-xl shadow-lg max-h-60 overflow-auto">
-                  {filteredProducts.slice(0, 10).map((product) => (
+                  {filteredFabrics.slice(0, 10).map((fabric) => (
                     <button
-                      key={product.id}
-                      onClick={() => handleSelectProduct(product)}
+                      key={fabric.id}
+                      onClick={() => handleSelectFabric(fabric)}
                       className="w-full px-4 py-3 text-left hover:bg-factory-border/50 transition-colors border-b border-factory-border/50 last:border-0"
                     >
-                      <p className="text-sm font-medium text-white">{product.name}</p>
+                      <p className="text-sm font-medium text-white">{fabric.name}</p>
                       <p className="text-xs text-neutral-400">
-                        {product.articleNumber || 'No article number'}
+                        {fabric.code}
                       </p>
                     </button>
                   ))}
@@ -273,7 +279,7 @@ export default function ProductLedgerPage() {
                 />
               </div>
             </div>
-            <Button variant="secondary" onClick={handleApplyFilters} disabled={!selectedProduct}>
+            <Button variant="secondary" onClick={handleApplyFilters} disabled={!selectedFabric}>
               Apply Filters
             </Button>
             {(startDate || endDate) && (
@@ -282,7 +288,7 @@ export default function ProductLedgerPage() {
                 onClick={() => {
                   setStartDate('');
                   setEndDate('');
-                  if (selectedProduct) loadLedger(selectedProduct.id, 1);
+                  if (selectedFabric) loadLedger(selectedFabric.id, 1);
                 }}
               >
                 Clear
@@ -292,23 +298,29 @@ export default function ProductLedgerPage() {
         </div>
       </div>
 
-      {/* Selected Product Info */}
-      {selectedProduct && (
+      {/* Selected Fabric Info */}
+      {selectedFabric && (
         <div className="bg-gradient-to-br from-primary-500/10 to-primary-600/5 rounded-2xl border border-primary-500/20 p-6">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-white">{selectedProduct.name}</h2>
+              <h2 className="text-lg font-semibold text-white">{selectedFabric.name}</h2>
               <div className="flex flex-wrap gap-4 mt-2 text-sm text-neutral-400">
-                <span>Article: <span className="text-primary-400 font-mono">{selectedProduct.articleNumber || '-'}</span></span>
-                {selectedProduct.qrCode && (
-                  <span>QR: <span className="text-neutral-300 font-mono">{selectedProduct.qrCode}</span></span>
+                <span>Code: <span className="text-primary-400 font-mono">{selectedFabric.code}</span></span>
+                {selectedFabric.qrPayload && (
+                  <span>QR: <span className="text-neutral-300 font-mono">{selectedFabric.qrPayload}</span></span>
+                )}
+                {selectedFabric.department && (
+                  <span>Dept: <span className="text-neutral-300">{selectedFabric.department.name}</span></span>
+                )}
+                {selectedFabric.group && (
+                  <span>Group: <span className="text-neutral-300">{selectedFabric.group.name}</span></span>
                 )}
               </div>
             </div>
             <div className="text-right">
               <p className="text-sm text-neutral-400">Current Stock</p>
               <p className="text-2xl font-bold text-white">
-                {parseFloat(selectedProduct.currentStock || '0').toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {parseFloat(selectedFabric.currentStock).toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </p>
             </div>
           </div>
@@ -316,7 +328,7 @@ export default function ProductLedgerPage() {
       )}
 
       {/* Ledger Table */}
-      {selectedProduct && (
+      {selectedFabric && (
         <div className="bg-factory-dark rounded-2xl border border-factory-border overflow-hidden">
           {/* Table Header */}
           <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-factory-gray/50 border-b border-factory-border">
@@ -365,7 +377,7 @@ export default function ProductLedgerPage() {
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium ${getReferenceBadge(entry.reference)}`}>
                       {entry.reference === 'Stock In' && <ArrowDownToLine className="w-3 h-3" />}
                       {entry.reference === 'Stock Out' && <ArrowUpFromLine className="w-3 h-3" />}
-                      {entry.reference === 'Sale' && <FileSpreadsheet className="w-3 h-3" />}
+                      {entry.reference === 'Production' && <FileSpreadsheet className="w-3 h-3" />}
                       {entry.reference}
                     </span>
                   </div>
@@ -461,15 +473,15 @@ export default function ProductLedgerPage() {
         </div>
       )}
 
-      {/* Empty State - No product selected */}
-      {!selectedProduct && !isLoading && (
+      {/* Empty State - No fabric selected */}
+      {!selectedFabric && !isLoading && (
         <div className="bg-factory-dark rounded-2xl border border-factory-border p-16 text-center">
           <div className="w-20 h-20 rounded-full bg-factory-gray mx-auto flex items-center justify-center mb-6">
-            <Package className="w-10 h-10 text-neutral-500" />
+            <Shirt className="w-10 h-10 text-neutral-500" />
           </div>
-          <h3 className="text-lg font-medium text-white mb-2">Select a Product</h3>
+          <h3 className="text-lg font-medium text-white mb-2">Select a Fabric</h3>
           <p className="text-neutral-400 max-w-md mx-auto">
-            Search for a product by name, article number, or scan its QR code to view the ledger history
+            Search for a fabric by name, code, or scan its QR code to view the ledger history
           </p>
         </div>
       )}

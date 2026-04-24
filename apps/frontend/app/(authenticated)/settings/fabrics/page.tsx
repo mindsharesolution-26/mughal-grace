@@ -14,6 +14,7 @@ import {
   colorsApi,
   fabricTypesApi,
   fabricCompositionsApi,
+  gradesApi,
 } from '@/lib/api/settings';
 import { machinesApi } from '@/lib/api/machines';
 import { MachineLookup } from '@/lib/types/machine';
@@ -28,6 +29,7 @@ import {
   Color,
   FabricType,
   FabricCompositionType,
+  Grade,
 } from '@/lib/types/settings';
 import { QRCodeSVG } from 'qrcode.react';
 import { Printer, Eye, X } from 'lucide-react';
@@ -53,6 +55,7 @@ export default function FabricsPage() {
   const [machines, setMachines] = useState<MachineLookup[]>([]);
   const [fabricTypes, setFabricTypes] = useState<FabricType[]>([]);
   const [fabricCompositions, setFabricCompositions] = useState<FabricCompositionType[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
 
   useEffect(() => {
     fetchFabrics();
@@ -73,7 +76,7 @@ export default function FabricsPage() {
 
   const fetchMasterData = async () => {
     try {
-      const [depts, mats, brnds, clrs, machs, fabTypes, fabComps] = await Promise.all([
+      const [depts, mats, brnds, clrs, machs, fabTypes, fabComps, grds] = await Promise.all([
         departmentsApi.getAll(),
         materialsApi.getAll(),
         brandsApi.getAll(),
@@ -81,6 +84,7 @@ export default function FabricsPage() {
         machinesApi.getLookup(),
         fabricTypesApi.getAll(),
         fabricCompositionsApi.getAll(),
+        gradesApi.getAll(),
       ]);
       setDepartments(depts.filter((d) => d.isActive));
       setMaterials(mats.filter((m) => m.isActive));
@@ -89,6 +93,7 @@ export default function FabricsPage() {
       setMachines(machs.filter((m) => m.status === 'OPERATIONAL' || m.status === 'IDLE'));
       setFabricTypes(fabTypes.filter((ft) => ft.isActive));
       setFabricCompositions(fabComps.filter((fc) => fc.isActive));
+      setGrades(grds.filter((g) => g.isActive));
     } catch (error) {
       console.error('Failed to load master data:', error);
     }
@@ -176,6 +181,7 @@ export default function FabricsPage() {
       brandId: editing?.brandId || null,
       colorId: editing?.colorId || null,
       machineId: editing?.machineId || null,
+      gradeId: editing?.gradeId || null,
       fabricTypeId: editing?.fabricTypeId || null,
       fabricCompositionId: editing?.fabricCompositionId || null,
       gsm: editing?.gsm ?? null,
@@ -411,8 +417,8 @@ export default function FabricsPage() {
               </div>
             </div>
 
-            {/* Type & Composition */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Type, Composition & Grade */}
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1.5">
                   Fabric Type
@@ -453,6 +459,28 @@ export default function FabricsPage() {
                   {fabricCompositions.map((fc) => (
                     <option key={fc.id} value={fc.id}>
                       {fc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                  Grade
+                </label>
+                <select
+                  value={formData.gradeId || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      gradeId: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                  className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">Select Grade</option>
+                  {grades.map((grade) => (
+                    <option key={grade.id} value={grade.id}>
+                      {grade.name}
                     </option>
                   ))}
                 </select>
@@ -699,6 +727,12 @@ export default function FabricsPage() {
                   </span>
                 </div>
               )}
+              {selectedFabric.grade && (
+                <div>
+                  <span className="text-neutral-400">Grade:</span>
+                  <span className="ml-2 text-white">{selectedFabric.grade.name}</span>
+                </div>
+              )}
               {selectedFabric.gsm && (
                 <div>
                   <span className="text-neutral-400">GSM:</span>
@@ -839,6 +873,11 @@ export default function FabricsPage() {
                     {fabric.machine && (
                       <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
                         M#{fabric.machine.machineNumber}
+                      </span>
+                    )}
+                    {fabric.grade && (
+                      <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">
+                        {fabric.grade.name}
                       </span>
                     )}
                     {fabric.isTube && (

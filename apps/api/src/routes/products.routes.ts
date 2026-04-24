@@ -52,8 +52,10 @@ productsRouter.use(tenantMiddleware);
 // VALIDATION SCHEMAS
 // ============================================
 
-const createProductSchema = z.object({
+// Base schema without refinements (needed for .partial())
+const productBaseSchema = z.object({
   name: z.string().min(2, 'Name is required').max(255),
+  type: z.enum(['FABRIC', 'GOODS']).optional().default('GOODS'),
   articleNumber: z.string().max(50).optional(),
   departmentId: z.number().int().positive().optional(),
   groupId: z.number().int().positive().optional(),
@@ -61,13 +63,41 @@ const createProductSchema = z.object({
   brandId: z.number().int().positive().optional(),
   colorId: z.number().int().positive().optional(),
   fabricSizeId: z.number().int().positive().optional(),
+  // Fabric Master Data Reference (required for FABRIC type)
+  fabricId: z.number().int().positive().optional(),
+  // Fabric/Production fields
+  machineId: z.number().int().positive().optional(),
+  gradeId: z.number().int().positive().optional(),
+  fabricTypeId: z.number().int().positive().optional(),
+  fabricCompositionId: z.number().int().positive().optional(),
+  gsm: z.number().positive().optional(),
+  width: z.number().positive().optional(),
+  widthUnit: z.enum(['inch', 'cm']).optional(),
+  isTube: z.boolean().optional(),
+  // Other fields
   description: z.string().optional(),
   unitPrice: z.number().positive().optional(),
   images: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
 });
 
-const updateProductSchema = createProductSchema.partial();
+// Create schema with refinement for fabricId validation
+const createProductSchema = productBaseSchema.refine(
+  (data) => {
+    // If type is FABRIC, fabricId is required
+    if (data.type === 'FABRIC' && !data.fabricId) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: 'Fabric Template (fabricId) is required for Fabric products',
+    path: ['fabricId'],
+  }
+);
+
+// Update schema - partial of base schema (no refine needed for updates)
+const updateProductSchema = productBaseSchema.partial();
 
 const idParamSchema = z.object({
   id: z.string().regex(/^\d+$/, 'Invalid ID format').transform(Number),
@@ -97,9 +127,33 @@ productsRouter.get('/lookup', requirePermission('products:read'), async (req: Re
 });
 
 // GET /products - List all products
+// Query params: type=FABRIC|GOODS, status=PENDING|APPROVED|REJECTED, showAll=true
 productsRouter.get('/', requirePermission('products:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { status, showAll, type } = req.query;
+    const user = (req as any).user;
+
+    // Build where clause
+    const where: any = {};
+
+    // Filter by product type (FABRIC or GOODS)
+    if (type && (type === 'FABRIC' || type === 'GOODS')) {
+      where.type = type;
+    }
+
+    // Filter by approval status
+    if (status) {
+      where.approvalStatus = status;
+    } else if (showAll !== 'true') {
+      // By default, only show approved products unless user is admin/super_admin
+      const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+      if (!isAdmin) {
+        where.approvalStatus = 'APPROVED';
+      }
+    }
+
     const products = await req.prisma!.product.findMany({
+      where,
       include: {
         department: { select: { id: true, code: true, name: true } },
         group: { select: { id: true, code: true, name: true } },
@@ -107,6 +161,25 @@ productsRouter.get('/', requirePermission('products:read'), async (req: Request,
         brand: { select: { id: true, code: true, name: true } },
         color: { select: { id: true, code: true, name: true } },
         fabricSize: { select: { id: true, code: true, displayName: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true, gauge: true, diameter: true } },
+        grade: { select: { id: true, code: true, name: true } },
+        fabricType: { select: { id: true, code: true, name: true } },
+        fabricComposition: { select: { id: true, code: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -120,6 +193,55 @@ productsRouter.get('/', requirePermission('products:read'), async (req: Request,
 // PRODUCTION LOGS (Stock Movements from Production)
 // NOTE: Must be before /:id route to avoid matching
 // ============================================
+
+// GET /products/pending-approval - List products awaiting approval (admin only)
+// NOTE: Must be before /:id route to avoid matching
+productsRouter.get('/pending-approval', requirePermission('products:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+    if (!isAdmin) {
+      throw AppError.forbidden('Only admins can view pending approvals');
+    }
+
+    const products = await req.prisma!.product.findMany({
+      where: { approvalStatus: 'PENDING' },
+      include: {
+        department: { select: { id: true, code: true, name: true } },
+        group: { select: { id: true, code: true, name: true } },
+        material: { select: { id: true, code: true, name: true } },
+        brand: { select: { id: true, code: true, name: true } },
+        color: { select: { id: true, code: true, name: true } },
+        fabricSize: { select: { id: true, code: true, displayName: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true, gauge: true, diameter: true } },
+        grade: { select: { id: true, code: true, name: true } },
+        fabricType: { select: { id: true, code: true, name: true } },
+        fabricComposition: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ data: products });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // GET /products/production-logs - Get production logs for today/date range
 productsRouter.get('/production-logs', requirePermission('products:read'), async (req: Request, res: Response, next: NextFunction) => {
@@ -241,6 +363,25 @@ productsRouter.get('/:id', requirePermission('products:read'), validateParams(id
         brand: { select: { id: true, code: true, name: true } },
         color: { select: { id: true, code: true, name: true } },
         fabricSize: { select: { id: true, code: true, displayName: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true, gauge: true, diameter: true } },
+        grade: { select: { id: true, code: true, name: true } },
+        fabricType: { select: { id: true, code: true, name: true } },
+        fabricComposition: { select: { id: true, code: true, name: true } },
         stockMovements: {
           orderBy: { createdAt: 'desc' },
           take: 20,
@@ -259,6 +400,9 @@ productsRouter.get('/:id', requirePermission('products:read'), validateParams(id
 // POST /products - Create product
 productsRouter.post('/', requirePermission('products:write'), validateBody(createProductSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = (req as any).user;
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
     // Check article number uniqueness if provided
     if (req.body.articleNumber) {
       const existing = await req.prisma!.product.findUnique({
@@ -275,9 +419,16 @@ productsRouter.post('/', requirePermission('products:write'), validateBody(creat
     // Auto-generate article number if not provided
     const articleNumber = req.body.articleNumber || await generateArticleNumber(req.prisma!);
 
+    // Set approval status based on user role
+    // Admins auto-approve, regular users need approval
+    const approvalStatus = isAdmin ? 'APPROVED' : 'PENDING';
+    const approvedBy = isAdmin ? user?.userId : null;
+    const approvedAt = isAdmin ? new Date() : null;
+
     const product = await req.prisma!.product.create({
       data: {
         name: req.body.name,
+        type: req.body.type || 'GOODS',
         articleNumber,
         qrCode,
         departmentId: req.body.departmentId || null,
@@ -286,10 +437,27 @@ productsRouter.post('/', requirePermission('products:write'), validateBody(creat
         brandId: req.body.brandId || null,
         colorId: req.body.colorId || null,
         fabricSizeId: req.body.fabricSizeId || null,
+        // Fabric Master Data Reference (required for FABRIC type)
+        fabricId: req.body.fabricId || null,
+        // Fabric/Production fields
+        machineId: req.body.machineId || null,
+        gradeId: req.body.gradeId || null,
+        fabricTypeId: req.body.fabricTypeId || null,
+        fabricCompositionId: req.body.fabricCompositionId || null,
+        gsm: req.body.gsm || null,
+        width: req.body.width || null,
+        widthUnit: req.body.widthUnit || 'inch',
+        isTube: req.body.isTube ?? false,
+        // Other fields
         description: req.body.description || null,
         unitPrice: req.body.unitPrice || null,
         images: req.body.images || [],
         isActive: req.body.isActive ?? true,
+        // Approval workflow
+        approvalStatus,
+        approvedBy,
+        approvedAt,
+        createdBy: user?.userId || null,
       },
       include: {
         department: { select: { id: true, code: true, name: true } },
@@ -298,10 +466,33 @@ productsRouter.post('/', requirePermission('products:write'), validateBody(creat
         brand: { select: { id: true, code: true, name: true } },
         color: { select: { id: true, code: true, name: true } },
         fabricSize: { select: { id: true, code: true, displayName: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true, gauge: true, diameter: true } },
+        grade: { select: { id: true, code: true, name: true } },
+        fabricType: { select: { id: true, code: true, name: true } },
+        fabricComposition: { select: { id: true, code: true, name: true } },
       },
     });
 
-    res.status(201).json({ message: 'Product created', data: product });
+    const message = isAdmin
+      ? 'Product created and approved'
+      : 'Product created and submitted for approval';
+
+    res.status(201).json({ message, data: product });
   } catch (error) {
     next(error);
   }
@@ -331,6 +522,7 @@ productsRouter.put('/:id', requirePermission('products:write'), validateParams(i
     // Build update data
     const updateData: any = {};
     if (req.body.name !== undefined) updateData.name = req.body.name;
+    if (req.body.type !== undefined) updateData.type = req.body.type;
     if (req.body.articleNumber !== undefined) updateData.articleNumber = req.body.articleNumber || null;
     if (req.body.departmentId !== undefined) updateData.departmentId = req.body.departmentId || null;
     if (req.body.groupId !== undefined) updateData.groupId = req.body.groupId || null;
@@ -338,6 +530,18 @@ productsRouter.put('/:id', requirePermission('products:write'), validateParams(i
     if (req.body.brandId !== undefined) updateData.brandId = req.body.brandId || null;
     if (req.body.colorId !== undefined) updateData.colorId = req.body.colorId || null;
     if (req.body.fabricSizeId !== undefined) updateData.fabricSizeId = req.body.fabricSizeId || null;
+    // Fabric Master Data Reference
+    if (req.body.fabricId !== undefined) updateData.fabricId = req.body.fabricId || null;
+    // Fabric/Production fields
+    if (req.body.machineId !== undefined) updateData.machineId = req.body.machineId || null;
+    if (req.body.gradeId !== undefined) updateData.gradeId = req.body.gradeId || null;
+    if (req.body.fabricTypeId !== undefined) updateData.fabricTypeId = req.body.fabricTypeId || null;
+    if (req.body.fabricCompositionId !== undefined) updateData.fabricCompositionId = req.body.fabricCompositionId || null;
+    if (req.body.gsm !== undefined) updateData.gsm = req.body.gsm || null;
+    if (req.body.width !== undefined) updateData.width = req.body.width || null;
+    if (req.body.widthUnit !== undefined) updateData.widthUnit = req.body.widthUnit || 'inch';
+    if (req.body.isTube !== undefined) updateData.isTube = req.body.isTube;
+    // Other fields
     if (req.body.description !== undefined) updateData.description = req.body.description || null;
     if (req.body.unitPrice !== undefined) updateData.unitPrice = req.body.unitPrice || null;
     if (req.body.images !== undefined) updateData.images = req.body.images;
@@ -353,6 +557,25 @@ productsRouter.put('/:id', requirePermission('products:write'), validateParams(i
         brand: { select: { id: true, code: true, name: true } },
         color: { select: { id: true, code: true, name: true } },
         fabricSize: { select: { id: true, code: true, displayName: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true, gauge: true, diameter: true } },
+        grade: { select: { id: true, code: true, name: true } },
+        fabricType: { select: { id: true, code: true, name: true } },
+        fabricComposition: { select: { id: true, code: true, name: true } },
       },
     });
 
@@ -378,6 +601,126 @@ productsRouter.delete('/:id', requirePermission('products:write'), validateParam
     });
 
     res.json({ message: 'Product deactivated' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// PRODUCT APPROVAL WORKFLOW
+// ============================================
+
+const approvalSchema = z.object({
+  rejectionReason: z.string().optional(),
+});
+
+// POST /products/:id/approve - Approve a pending product
+productsRouter.post('/:id/approve', requirePermission('products:write'), validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+    const user = (req as any).user;
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+    if (!isAdmin) {
+      throw AppError.forbidden('Only admins can approve products');
+    }
+
+    const existing = await req.prisma!.product.findUnique({ where: { id } });
+    if (!existing) {
+      throw AppError.notFound('Product');
+    }
+
+    if (existing.approvalStatus === 'APPROVED') {
+      throw AppError.badRequest('Product is already approved');
+    }
+
+    const product = await req.prisma!.product.update({
+      where: { id },
+      data: {
+        approvalStatus: 'APPROVED',
+        approvedBy: user?.userId,
+        approvedAt: new Date(),
+        rejectionReason: null,
+      },
+      include: {
+        department: { select: { id: true, code: true, name: true } },
+        group: { select: { id: true, code: true, name: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true } },
+      },
+    });
+
+    res.json({ message: 'Product approved', data: product });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /products/:id/reject - Reject a pending product
+productsRouter.post('/:id/reject', requirePermission('products:write'), validateParams(idParamSchema), validateBody(approvalSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+    const user = (req as any).user;
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+    if (!isAdmin) {
+      throw AppError.forbidden('Only admins can reject products');
+    }
+
+    const existing = await req.prisma!.product.findUnique({ where: { id } });
+    if (!existing) {
+      throw AppError.notFound('Product');
+    }
+
+    if (existing.approvalStatus === 'REJECTED') {
+      throw AppError.badRequest('Product is already rejected');
+    }
+
+    const product = await req.prisma!.product.update({
+      where: { id },
+      data: {
+        approvalStatus: 'REJECTED',
+        approvedBy: user?.userId,
+        approvedAt: new Date(),
+        rejectionReason: req.body.rejectionReason || null,
+      },
+      include: {
+        department: { select: { id: true, code: true, name: true } },
+        group: { select: { id: true, code: true, name: true } },
+        fabric: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            gsm: true,
+            width: true,
+            widthUnit: true,
+            isTube: true,
+            machine: { select: { id: true, machineNumber: true, name: true } },
+            fabricType: { select: { id: true, code: true, name: true } },
+            grade: { select: { id: true, code: true, name: true } },
+            color: { select: { id: true, code: true, name: true } },
+          },
+        },
+        machine: { select: { id: true, machineNumber: true, name: true } },
+      },
+    });
+
+    res.json({ message: 'Product rejected', data: product });
   } catch (error) {
     next(error);
   }
