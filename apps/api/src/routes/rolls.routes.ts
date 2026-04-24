@@ -188,7 +188,7 @@ rollsRouter.get('/', requirePermission('rolls:read'), validateQuery(listRollsSch
 // ========================================
 rollsRouter.get('/by-qr/:qrCode', requirePermission('rolls:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { qrCode } = req.params;
+    const qrCode = req.params.qrCode as string;
 
     const roll = await req.prisma!.roll.findUnique({
       where: { qrCode },
@@ -339,7 +339,7 @@ rollsRouter.get('/finished-stock/summary', requirePermission('rolls:read'), asyn
 // ========================================
 rollsRouter.get('/:id', requirePermission('rolls:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     if (isNaN(id)) {
       throw AppError.badRequest('Invalid roll ID');
@@ -542,7 +542,7 @@ rollsRouter.post('/', requirePermission('rolls:write'), validateBody(createRollS
 // ========================================
 rollsRouter.patch('/:id/status', requirePermission('rolls:write'), validateBody(updateRollStatusSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { status, notes } = req.body;
     const userId = req.user?.userId;
 
@@ -603,7 +603,7 @@ rollsRouter.patch('/:id/status', requirePermission('rolls:write'), validateBody(
 // ========================================
 rollsRouter.post('/:id/stock-out', requirePermission('rolls:write'), validateBody(stockOutSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const { notes, destinationType } = req.body;
     const userId = req.user?.userId;
 
@@ -670,7 +670,7 @@ rollsRouter.post('/:id/stock-out', requirePermission('rolls:write'), validateBod
 // ========================================
 rollsRouter.get('/:id/history', requirePermission('rolls:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     if (isNaN(id)) {
       throw AppError.badRequest('Invalid roll ID');
