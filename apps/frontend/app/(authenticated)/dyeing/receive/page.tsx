@@ -281,7 +281,13 @@ export default function ReceiveFromDyeingPage() {
               <Printer className="w-4 h-4 mr-2" />
               {isPrinting ? 'Opening Print...' : 'Print Barcodes'}
             </Button>
-            <Button variant="secondary" onClick={handleDone}>
+            <Link href="/dyeing/stock">
+              <Button variant="secondary">
+                <Package className="w-4 h-4 mr-2" />
+                View Dyed Stock
+              </Button>
+            </Link>
+            <Button variant="ghost" onClick={handleDone}>
               Done
             </Button>
           </div>
