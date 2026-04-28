@@ -508,7 +508,8 @@ yarnRouter.post('/vendors/:id/ledger', requirePermission('yarn:write'), validate
 
     const entry = await req.prisma!.vendorLedgerEntry.create({
       data: {
-        yarnVendorId: id,
+        vendorType: 'YARN',
+        yarnVendor: { connect: { id } },
         entryDate: new Date(req.body.entryDate),
         entryType: req.body.entryType,
         debit: req.body.debit,
@@ -568,12 +569,13 @@ yarnRouter.post('/vendors/:id/payments', requirePermission('yarn:write'), valida
       // Create payment record
       const payment = await tx.vendorPayment.create({
         data: {
-          yarnVendorId: id,
+          vendorType: 'YARN',
+          yarnVendor: { connect: { id } },
           paymentDate: new Date(req.body.paymentDate),
           amount: req.body.amount,
           paymentMethod: req.body.paymentMethod,
           voucherNumber,
-          referenceNumber: req.body.referenceNumber,
+          transactionRef: req.body.referenceNumber,
           bankName: req.body.bankName,
           chequeNumber: req.body.chequeNumber,
           notes: req.body.notes,
@@ -593,7 +595,8 @@ yarnRouter.post('/vendors/:id/payments', requirePermission('yarn:write'), valida
       // Create ledger entry
       const ledgerEntry = await tx.vendorLedgerEntry.create({
         data: {
-          yarnVendorId: id,
+          vendorType: 'YARN',
+          yarnVendor: { connect: { id } },
           entryDate: new Date(req.body.paymentDate),
           entryType: 'PAYMENT_MADE',
           debit: 0,

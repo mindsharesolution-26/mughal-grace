@@ -140,7 +140,7 @@ const vendorSchema = z.object({
   city: z.string().max(100).optional(),
   ntn: z.string().max(50).optional(),
   strn: z.string().max(50).optional(),
-  paymentTerms: z.string().max(100).optional(),
+  paymentTerms: z.number().int().optional(),
   defaultRatePerKg: z.number().positive().optional(),
   qualityRating: z.number().min(0).max(5).optional(),
 });
@@ -160,8 +160,15 @@ dyeingRouter.post('/vendors', requirePermission('dyeing:write'), async (req: Req
 
     const vendor = await req.prisma!.dyeingVendor.create({
       data: {
-        ...data,
+        code: data.code,
+        name: data.name,
+        contactPerson: data.contactPerson,
+        phone: data.phone,
         email: data.email || null,
+        address: data.address,
+        city: data.city,
+        paymentTerms: data.paymentTerms,
+        qualityRating: data.qualityRating,
       },
     });
 
@@ -174,7 +181,7 @@ dyeingRouter.post('/vendors', requirePermission('dyeing:write'), async (req: Req
 // GET /dyeing/vendors/:id - Get vendor by ID
 dyeingRouter.get('/vendors/:id', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     const vendor = await req.prisma!.dyeingVendor.findUnique({
       where: { id },
@@ -202,7 +209,7 @@ dyeingRouter.get('/vendors/:id', requirePermission('dyeing:read'), async (req: R
 // PUT /dyeing/vendors/:id - Update vendor
 dyeingRouter.put('/vendors/:id', requirePermission('dyeing:write'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const data = vendorSchema.partial().parse(req.body);
 
     const existing = await req.prisma!.dyeingVendor.findUnique({
@@ -225,8 +232,15 @@ dyeingRouter.put('/vendors/:id', requirePermission('dyeing:write'), async (req: 
     const vendor = await req.prisma!.dyeingVendor.update({
       where: { id },
       data: {
-        ...data,
+        code: data.code,
+        name: data.name,
+        contactPerson: data.contactPerson,
+        phone: data.phone,
         email: data.email === '' ? null : data.email,
+        address: data.address,
+        city: data.city,
+        paymentTerms: data.paymentTerms,
+        qualityRating: data.qualityRating,
       },
     });
 
@@ -503,7 +517,7 @@ dyeingRouter.post('/orders', requirePermission('dyeing:write'), async (req: Requ
 // GET /dyeing/orders/:id - Get order details
 dyeingRouter.get('/orders/:id', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     const order = await req.prisma!.dyeingOrder.findUnique({
       where: { id },
@@ -552,7 +566,7 @@ const receiveSchema = z.object({
 // POST /dyeing/orders/:id/receive - Receive rolls from dyeing
 dyeingRouter.post('/orders/:id/receive', requirePermission('dyeing:write'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orderId = parseInt(req.params.id);
+    const orderId = parseInt(req.params.id as string);
     const data = receiveSchema.parse(req.body);
 
     const order = await req.prisma!.dyeingOrder.findUnique({
@@ -672,8 +686,8 @@ dyeingRouter.post('/orders/:id/receive', requirePermission('dyeing:write'), asyn
 // PUT /dyeing/orders/:id/status - Update order status
 dyeingRouter.put('/orders/:id/status', requirePermission('dyeing:write'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
-    const { status, notes } = req.body;
+    const id = parseInt(req.params.id as string);
+    const { status, qualityNotes } = req.body;
 
     const validStatuses = ['SENT', 'IN_PROCESS', 'READY', 'PARTIALLY_RECEIVED', 'COMPLETED', 'CANCELLED'];
     if (!validStatuses.includes(status)) {
@@ -692,7 +706,7 @@ dyeingRouter.put('/orders/:id/status', requirePermission('dyeing:write'), async 
       where: { id },
       data: {
         status,
-        notes: notes || order.notes,
+        qualityNotes: qualityNotes || order.qualityNotes,
       },
     });
 
@@ -705,7 +719,7 @@ dyeingRouter.put('/orders/:id/status', requirePermission('dyeing:write'), async 
 // GET /dyeing/rolls/by-qr/:qrCode - Lookup roll by QR code for dyeing selection
 dyeingRouter.get('/rolls/by-qr/:qrCode', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { qrCode } = req.params;
+    const qrCode = req.params.qrCode as string;
 
     // Find roll by QR code (case-insensitive search)
     const roll = await req.prisma!.roll.findFirst({
@@ -754,7 +768,7 @@ dyeingRouter.get('/rolls/by-qr/:qrCode', requirePermission('dyeing:read'), async
 // GET /dyeing/orders/:id/print-data - Get formatted data for printing challans
 dyeingRouter.get('/orders/:id/print-data', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
 
     const order = await req.prisma!.dyeingOrder.findUnique({
       where: { id },
@@ -824,7 +838,7 @@ dyeingRouter.get('/orders/:id/print-data', requirePermission('dyeing:read'), asy
         status: order.status,
         sentAt: order.sentAt,
         receivedAt: order.receivedAt,
-        notes: order.notes,
+        qualityNotes: order.qualityNotes,
       },
       vendor: {
         id: order.vendor.id,
