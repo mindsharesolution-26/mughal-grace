@@ -1,80 +1,107 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { StatsCard } from '@/components/molecules/StatsCard';
-
-// Mock dyeing orders
-const mockDyeingOrders = [
-  {
-    id: 1,
-    orderNumber: 'DYE-2024-001',
-    vendor: 'Color Masters',
-    rolls: 5,
-    sentWeight: 225.5,
-    receivedWeight: null,
-    color: 'Navy Blue',
-    process: 'Reactive',
-    status: 'PENDING',
-    sentAt: '2024-01-15',
-    expectedAt: '2024-01-20',
-  },
-  {
-    id: 2,
-    orderNumber: 'DYE-2024-002',
-    vendor: 'Textile Dyers',
-    rolls: 3,
-    sentWeight: 142.0,
-    receivedWeight: 140.2,
-    color: 'Black',
-    process: 'Disperse',
-    status: 'RECEIVED',
-    sentAt: '2024-01-10',
-    receivedAt: '2024-01-14',
-    weightLoss: 1.3,
-  },
-  {
-    id: 3,
-    orderNumber: 'DYE-2024-003',
-    vendor: 'Color Masters',
-    rolls: 8,
-    sentWeight: 380.0,
-    receivedWeight: null,
-    color: 'Red',
-    process: 'Reactive',
-    status: 'IN_PROGRESS',
-    sentAt: '2024-01-12',
-    expectedAt: '2024-01-18',
-  },
-];
-
-const mockVendors = [
-  { id: 1, name: 'Color Masters', avgTurnaround: 5, qualityRating: 4.5, activeOrders: 2 },
-  { id: 2, name: 'Textile Dyers', avgTurnaround: 4, qualityRating: 4.8, activeOrders: 0 },
-  { id: 3, name: 'Dye Works', avgTurnaround: 6, qualityRating: 4.2, activeOrders: 1 },
-];
-
-const statusConfig = {
-  PENDING: { label: 'Pending', color: 'bg-warning/20 text-warning' },
-  IN_PROGRESS: { label: 'Processing', color: 'bg-primary-500/20 text-primary-400' },
-  RECEIVED: { label: 'Received', color: 'bg-success/20 text-success' },
-  REJECTED: { label: 'Rejected', color: 'bg-error/20 text-error' },
-};
+import { useToast } from '@/contexts/ToastContext';
+import { dyeingOrdersApi, dyeingVendorsApi } from '@/lib/api/dyeing';
+import {
+  DyeingOrder,
+  DyeingVendorWithStats,
+  DyeingStats,
+  DyeingStatus,
+  dyeingStatusLabels,
+  dyeingStatusColors,
+} from '@/lib/types/dyeing';
 
 export default function DyeingPage() {
+  const { showToast } = useToast();
+  const [orders, setOrders] = useState<DyeingOrder[]>([]);
+  const [vendors, setVendors] = useState<DyeingVendorWithStats[]>([]);
+  const [stats, setStats] = useState<DyeingStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<DyeingStatus | ''>('');
   const [activeTab, setActiveTab] = useState<'orders' | 'vendors'>('orders');
+  const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
 
-  const stats = {
-    pending: mockDyeingOrders.filter((o) => o.status === 'PENDING').length,
-    inProgress: mockDyeingOrders.filter((o) => o.status === 'IN_PROGRESS').length,
-    pendingWeight: mockDyeingOrders
-      .filter((o) => o.status !== 'RECEIVED')
-      .reduce((sum, o) => sum + o.sentWeight, 0),
-    avgLoss: 1.5,
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'orders') {
+      fetchOrders();
+    }
+  }, [searchQuery, statusFilter, pagination.page]);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [statsData, vendorsData] = await Promise.all([
+        dyeingOrdersApi.getStats(),
+        dyeingVendorsApi.getAll(),
+      ]);
+      setStats(statsData);
+      setVendors(vendorsData);
+      await fetchOrders();
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const fetchOrders = async () => {
+    try {
+      const response = await dyeingOrdersApi.getAll({
+        page: pagination.page,
+        limit: 20,
+        search: searchQuery || undefined,
+        status: statusFilter || undefined,
+      });
+      setOrders(response.orders);
+      setPagination({
+        page: response.pagination.page,
+        totalPages: response.pagination.totalPages,
+        total: response.pagination.total,
+      });
+    } catch (error: any) {
+      console.error('Failed to load orders:', error);
+    }
+  };
+
+  const getColorPreview = (colorName: string | null) => {
+    if (!colorName) return '#6b7280';
+    const colorMap: Record<string, string> = {
+      'Navy Blue': '#1e3a5f',
+      'Black': '#000000',
+      'Red': '#dc2626',
+      'White': '#ffffff',
+      'Grey': '#6b7280',
+      'Green': '#16a34a',
+      'Blue': '#2563eb',
+      'Yellow': '#eab308',
+      'Orange': '#ea580c',
+      'Pink': '#ec4899',
+      'Purple': '#9333ea',
+      'Brown': '#78350f',
+      'Maroon': '#7f1d1d',
+      'Beige': '#d6cfc7',
+    };
+    return colorMap[colorName] || '#6b7280';
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+        <span className="ml-3 text-neutral-400">Loading...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -94,36 +121,38 @@ export default function DyeingPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatsCard
-          title="Pending Orders"
-          value={stats.pending}
-          change="Awaiting dispatch"
-          changeType="neutral"
-          icon="📦"
-        />
-        <StatsCard
-          title="In Progress"
-          value={stats.inProgress}
-          change="At dyer"
-          changeType="neutral"
-          icon="🎨"
-        />
-        <StatsCard
-          title="Pending Weight"
-          value={`${stats.pendingWeight.toFixed(1)} kg`}
-          change="Total with dyers"
-          changeType="neutral"
-          icon="⚖️"
-        />
-        <StatsCard
-          title="Avg Weight Loss"
-          value={`${stats.avgLoss}%`}
-          change={stats.avgLoss < 2 ? 'Normal' : 'High'}
-          changeType={stats.avgLoss < 2 ? 'positive' : 'negative'}
-          icon="📉"
-        />
-      </div>
+      {stats && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatsCard
+            title="Pending Orders"
+            value={stats.pending}
+            change="Awaiting dispatch"
+            changeType="neutral"
+            icon="📦"
+          />
+          <StatsCard
+            title="In Progress"
+            value={stats.inProgress + stats.ready}
+            change={`${stats.ready} ready to receive`}
+            changeType="neutral"
+            icon="🎨"
+          />
+          <StatsCard
+            title="Pending Weight"
+            value={`${stats.pendingWeight.toFixed(1)} kg`}
+            change="Total with dyers"
+            changeType="neutral"
+            icon="⚖️"
+          />
+          <StatsCard
+            title="Avg Weight Loss"
+            value={`${stats.avgWeightLoss.toFixed(1)}%`}
+            change={stats.avgWeightLoss < 2 ? 'Normal' : 'High'}
+            changeType={stats.avgWeightLoss < 2 ? 'positive' : 'negative'}
+            icon="📉"
+          />
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-factory-border">
@@ -136,7 +165,7 @@ export default function DyeingPage() {
                 : 'border-transparent text-neutral-400 hover:text-white'
             }`}
           >
-            Dyeing Orders
+            Dyeing Orders ({pagination.total})
           </button>
           <button
             onClick={() => setActiveTab('vendors')}
@@ -146,145 +175,200 @@ export default function DyeingPage() {
                 : 'border-transparent text-neutral-400 hover:text-white'
             }`}
           >
-            Vendors
+            Vendors ({vendors.length})
           </button>
         </div>
       </div>
 
       {activeTab === 'orders' ? (
         <>
-          {/* Search */}
+          {/* Search & Filters */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <Input
-                  placeholder="Search by order number or vendor..."
+                  placeholder="Search by order number, color, or vendor..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <div className="flex gap-2">
-                <Button variant="secondary">Filter</Button>
-              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as DyeingStatus | '')}
+                className="px-4 py-2 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">All Statuses</option>
+                <option value="SENT">Sent</option>
+                <option value="IN_PROCESS">Processing</option>
+                <option value="READY">Ready</option>
+                <option value="PARTIALLY_RECEIVED">Partial</option>
+                <option value="COMPLETED">Completed</option>
+              </select>
             </div>
           </div>
 
           {/* Orders Table */}
-          <div className="bg-factory-dark rounded-2xl border border-factory-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-factory-border">
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Order #
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Vendor
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Color
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Rolls
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Sent Weight
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Received Weight
-                    </th>
-                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
-                      Status
-                    </th>
-                    <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-factory-border">
-                  {mockDyeingOrders.map((order) => (
-                    <tr
-                      key={order.id}
-                      className="hover:bg-factory-gray transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <span className="font-mono text-sm text-primary-400">
-                          {order.orderNumber}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-white">{order.vendor}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-4 h-4 rounded-full border border-factory-border"
-                            style={{
-                              backgroundColor:
-                                order.color === 'Navy Blue'
-                                  ? '#1e3a5f'
-                                  : order.color === 'Black'
-                                  ? '#000'
-                                  : '#dc2626',
-                            }}
-                          />
-                          <span className="text-neutral-300">{order.color}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-white">{order.rolls}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-white">{order.sentWeight} kg</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-white">
-                          {order.receivedWeight
-                            ? `${order.receivedWeight} kg`
-                            : '-'}
-                        </span>
-                        {order.weightLoss && (
-                          <span className="text-error text-xs ml-1">
-                            (-{order.weightLoss}%)
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                            statusConfig[order.status as keyof typeof statusConfig]
-                              .color
-                          }`}
-                        >
-                          {
-                            statusConfig[order.status as keyof typeof statusConfig]
-                              .label
-                          }
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex justify-end gap-2">
-                          {order.status === 'IN_PROGRESS' && (
-                            <Button variant="ghost" size="sm">
-                              Receive
-                            </Button>
-                          )}
-                          <Button variant="ghost" size="sm">
-                            View
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {orders.length === 0 ? (
+            <div className="bg-factory-dark rounded-2xl border border-factory-border p-12 text-center">
+              <span className="text-4xl">📋</span>
+              <p className="text-neutral-400 mt-4">No dyeing orders found</p>
+              <Link href="/dyeing/send">
+                <Button className="mt-4">Send First Order</Button>
+              </Link>
             </div>
-          </div>
+          ) : (
+            <div className="bg-factory-dark rounded-2xl border border-factory-border overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-factory-border">
+                      <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
+                        Order #
+                      </th>
+                      <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
+                        Vendor
+                      </th>
+                      <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
+                        Color
+                      </th>
+                      <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
+                        Rolls
+                      </th>
+                      <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
+                        Sent Weight
+                      </th>
+                      <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
+                        Received
+                      </th>
+                      <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
+                        Status
+                      </th>
+                      <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-factory-border">
+                    {orders.map((order) => (
+                      <tr
+                        key={order.id}
+                        className="hover:bg-factory-gray transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="font-mono text-sm text-primary-400">
+                            {order.orderNumber}
+                          </span>
+                          <p className="text-xs text-neutral-500 mt-0.5">
+                            {new Date(order.sentAt).toLocaleDateString()}
+                          </p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-white">{order.vendor.name}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-4 h-4 rounded-full border border-factory-border"
+                              style={{ backgroundColor: getColorPreview(order.colorName) }}
+                            />
+                            <span className="text-neutral-300">
+                              {order.colorName || '-'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-white">{order._count?.items || 0}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-white">{Number(order.sentWeight).toFixed(1)} kg</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {order.receivedWeight ? (
+                            <div>
+                              <span className="text-white">
+                                {Number(order.receivedWeight).toFixed(1)} kg
+                              </span>
+                              {order.weightVariance && (
+                                <span
+                                  className={`text-xs ml-1 ${
+                                    Number(order.weightVariance) < 0
+                                      ? 'text-error'
+                                      : 'text-success'
+                                  }`}
+                                >
+                                  ({Number(order.weightVariance) > 0 ? '+' : ''}
+                                  {Number(order.weightVariance).toFixed(1)}%)
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-neutral-500">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                              dyeingStatusColors[order.status].bg
+                            } ${dyeingStatusColors[order.status].text}`}
+                          >
+                            {dyeingStatusLabels[order.status]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            {(order.status === 'IN_PROCESS' || order.status === 'READY') && (
+                              <Link href={`/dyeing/orders/${order.id}/receive`}>
+                                <Button variant="ghost" size="sm">
+                                  Receive
+                                </Button>
+                              </Link>
+                            )}
+                            <Link href={`/dyeing/orders/${order.id}`}>
+                              <Button variant="ghost" size="sm">
+                                View
+                              </Button>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between px-6 py-4 border-t border-factory-border">
+                  <p className="text-sm text-neutral-400">
+                    Showing {orders.length} of {pagination.total} orders
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={pagination.page === 1}
+                      onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={pagination.page === pagination.totalPages}
+                      onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       ) : (
         /* Vendors Tab */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {mockVendors.map((vendor) => (
+          {vendors.map((vendor) => (
             <div
               key={vendor.id}
               className="bg-factory-dark rounded-2xl border border-factory-border p-6"
@@ -294,25 +378,28 @@ export default function DyeingPage() {
                   <h3 className="text-lg font-semibold text-white">
                     {vendor.name}
                   </h3>
-                  <div className="flex items-center gap-1 mt-1">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <svg
-                        key={i}
-                        className={`w-4 h-4 ${
-                          i < Math.floor(vendor.qualityRating)
-                            ? 'text-warning'
-                            : 'text-factory-border'
-                        }`}
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    ))}
-                    <span className="text-sm text-neutral-400 ml-1">
-                      {vendor.qualityRating}
-                    </span>
-                  </div>
+                  <p className="text-sm text-neutral-400">{vendor.code}</p>
+                  {vendor.qualityRating && (
+                    <div className="flex items-center gap-1 mt-1">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <svg
+                          key={i}
+                          className={`w-4 h-4 ${
+                            i < Math.floor(Number(vendor.qualityRating))
+                              ? 'text-warning'
+                              : 'text-factory-border'
+                          }`}
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                      ))}
+                      <span className="text-sm text-neutral-400 ml-1">
+                        {Number(vendor.qualityRating).toFixed(1)}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {vendor.activeOrders > 0 && (
                   <span className="px-2 py-1 bg-primary-500/20 text-primary-400 text-xs rounded">
@@ -325,22 +412,44 @@ export default function DyeingPage() {
                 <div>
                   <p className="text-sm text-neutral-400">Avg Turnaround</p>
                   <p className="text-white font-medium">
-                    {vendor.avgTurnaround} days
+                    {vendor.avgTurnaround > 0 ? `${vendor.avgTurnaround} days` : '-'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-neutral-400">Active Orders</p>
-                  <p className="text-white font-medium">{vendor.activeOrders}</p>
+                  <p className="text-sm text-neutral-400">Completed</p>
+                  <p className="text-white font-medium">{vendor.completedOrders}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-neutral-400">Avg Weight Variance</p>
+                  <p className={`font-medium ${
+                    vendor.avgWeightVariance < 0 ? 'text-error' : 'text-success'
+                  }`}>
+                    {vendor.avgWeightVariance !== 0
+                      ? `${vendor.avgWeightVariance > 0 ? '+' : ''}${vendor.avgWeightVariance.toFixed(1)}%`
+                      : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-neutral-400">Default Rate</p>
+                  <p className="text-white font-medium">
+                    {vendor.defaultRatePerKg
+                      ? `PKR ${Number(vendor.defaultRatePerKg).toLocaleString()}`
+                      : '-'}
+                  </p>
                 </div>
               </div>
 
               <div className="flex gap-2 mt-4">
-                <Button variant="secondary" size="sm" className="flex-1">
-                  View Orders
-                </Button>
-                <Button variant="ghost" size="sm">
-                  Edit
-                </Button>
+                <Link href={`/dyeing/vendors/${vendor.id}`} className="flex-1">
+                  <Button variant="secondary" size="sm" className="w-full">
+                    View Orders
+                  </Button>
+                </Link>
+                <Link href={`/dyeing/vendors/${vendor.id}/edit`}>
+                  <Button variant="ghost" size="sm">
+                    Edit
+                  </Button>
+                </Link>
               </div>
             </div>
           ))}

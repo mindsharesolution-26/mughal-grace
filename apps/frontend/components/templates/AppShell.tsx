@@ -107,7 +107,6 @@ const navigation: NavItem[] = [
       { label: 'Inward', href: '/yarn/inward', icon: ArrowDownToLine },
       { label: 'Outward', href: '/yarn/outward', icon: ArrowUpFromLine },
       { label: 'Ledger', href: '/yarn/ledger', icon: FileSpreadsheet },
-      { label: 'Vendors', href: '/yarn/vendors', icon: Truck },
     ],
   },
 
@@ -119,7 +118,15 @@ const navigation: NavItem[] = [
       { label: 'Overview', href: '/production', icon: Factory },
       { label: 'Daily Production', href: '/production/daily', icon: FileSpreadsheet },
       { label: 'Rolls', href: '/rolls', icon: ScrollText },
-      { label: 'Dyeing', href: '/dyeing', icon: Palette },
+      {
+        label: 'Dyeing',
+        icon: Palette,
+        children: [
+          { label: 'Overview', href: '/dyeing', icon: Palette },
+          { label: 'Send for Dyeing', href: '/dyeing/send', icon: ArrowUpFromLine },
+          { label: 'Receive from Dyeing', href: '/dyeing/receive', icon: ArrowDownToLine },
+        ],
+      },
     ],
   },
 
@@ -156,10 +163,18 @@ const navigation: NavItem[] = [
     icon: CreditCard,
     children: [
       { label: 'Overview', href: '/finance', icon: CreditCard },
-      { label: 'Receivables', href: '/receivables', icon: ArrowDownToLine },
-      { label: 'Payables', href: '/payables', icon: ArrowUpFromLine },
-      { label: 'Cheques', href: '/cheques', icon: FileSpreadsheet },
-      { label: 'Sales', href: '/sales', icon: ShoppingCart },
+      { label: 'Customers', href: '/finance/customers', icon: Users },
+      { label: 'Vendors', href: '/finance/vendors', icon: Truck },
+      {
+        label: 'Accounts',
+        icon: Receipt,
+        children: [
+          { label: 'Receivable', href: '/finance/receivables', icon: ArrowDownToLine },
+          { label: 'Payable', href: '/finance/payables', icon: ArrowUpFromLine },
+          { label: 'Cheque', href: '/finance/cheques', icon: FileSpreadsheet },
+          { label: 'Sales Ledger', href: '/finance/sales', icon: ShoppingCart },
+        ],
+      },
     ],
   },
 

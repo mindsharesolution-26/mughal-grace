@@ -410,8 +410,209 @@ yarnRouter.delete('/vendors/:id', requirePermission('yarn:write'), validateParam
   }
 });
 
-yarnRouter.get('/vendors/:id/ledger', requirePermission('yarn:read'), (_req, res) => {
-  res.json({ message: 'Get vendor ledger - coming soon' });
+// GET /yarn/vendors/:id/ledger - Get vendor financial ledger
+yarnRouter.get('/vendors/:id/ledger', requirePermission('yarn:read'), validateParams(idParamSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+    const { fromDate, toDate, page = '1', limit = '50' } = req.query;
+
+    // Verify vendor exists
+    const vendor = await req.prisma!.yarnVendor.findUnique({
+      where: { id },
+      select: { id: true, code: true, name: true },
+    });
+    if (!vendor) {
+      throw AppError.notFound('Vendor');
+    }
+
+    const where: any = { yarnVendorId: id };
+
+    if (fromDate) {
+      where.entryDate = { ...where.entryDate, gte: new Date(String(fromDate)) };
+    }
+    if (toDate) {
+      where.entryDate = { ...where.entryDate, lte: new Date(String(toDate)) };
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [entries, total] = await Promise.all([
+      req.prisma!.vendorLedgerEntry.findMany({
+        where,
+        orderBy: [{ entryDate: 'desc' }, { id: 'desc' }],
+        skip,
+        take: Number(limit),
+      }),
+      req.prisma!.vendorLedgerEntry.count({ where }),
+    ]);
+
+    // Get totals
+    const totals = await req.prisma!.vendorLedgerEntry.aggregate({
+      where: { yarnVendorId: id },
+      _sum: { debit: true, credit: true },
+    });
+
+    // Get current balance (latest entry)
+    const latestEntry = entries.length > 0 ? entries[0] : null;
+
+    res.json({
+      vendor,
+      entries,
+      summary: {
+        totalDebit: totals._sum.debit?.toNumber() || 0,
+        totalCredit: totals._sum.credit?.toNumber() || 0,
+        currentBalance: latestEntry?.balance?.toNumber() || 0,
+      },
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /yarn/vendors/:id/ledger - Add ledger entry (opening balance, adjustment)
+const vendorLedgerEntrySchema = z.object({
+  entryDate: z.string().min(1, 'Entry date is required'),
+  entryType: z.enum(['OPENING_BALANCE', 'PURCHASE', 'PAYMENT_MADE', 'RETURN', 'ADJUSTMENT', 'DEBIT_NOTE', 'CREDIT_NOTE']),
+  debit: z.number().min(0).default(0),
+  credit: z.number().min(0).default(0),
+  referenceType: z.string().max(50).optional(),
+  referenceId: z.number().int().positive().optional(),
+  referenceNumber: z.string().max(100).optional(),
+  description: z.string().optional(),
+});
+
+yarnRouter.post('/vendors/:id/ledger', requirePermission('yarn:write'), validateParams(idParamSchema), validateBody(vendorLedgerEntrySchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+
+    // Verify vendor exists
+    const vendor = await req.prisma!.yarnVendor.findUnique({ where: { id } });
+    if (!vendor) {
+      throw AppError.notFound('Vendor');
+    }
+
+    // Get the last ledger entry to calculate running balance
+    const lastEntry = await req.prisma!.vendorLedgerEntry.findFirst({
+      where: { yarnVendorId: id },
+      orderBy: [{ entryDate: 'desc' }, { id: 'desc' }],
+    });
+
+    const previousBalance = lastEntry?.balance?.toNumber() || 0;
+    const newBalance = previousBalance + req.body.debit - req.body.credit;
+
+    const entry = await req.prisma!.vendorLedgerEntry.create({
+      data: {
+        yarnVendorId: id,
+        entryDate: new Date(req.body.entryDate),
+        entryType: req.body.entryType,
+        debit: req.body.debit,
+        credit: req.body.credit,
+        balance: newBalance,
+        referenceType: req.body.referenceType,
+        referenceId: req.body.referenceId,
+        referenceNumber: req.body.referenceNumber,
+        description: req.body.description,
+      },
+    });
+
+    res.status(201).json(entry);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /yarn/vendors/:id/payments - Record payment to vendor
+const vendorPaymentSchema = z.object({
+  paymentDate: z.string().min(1, 'Payment date is required'),
+  amount: z.number().positive('Amount must be positive'),
+  paymentMethod: z.enum(['CASH', 'CHEQUE', 'BANK_TRANSFER', 'ONLINE']),
+  referenceNumber: z.string().max(100).optional(),
+  bankName: z.string().max(100).optional(),
+  chequeNumber: z.string().max(100).optional(),
+  notes: z.string().optional(),
+});
+
+yarnRouter.post('/vendors/:id/payments', requirePermission('yarn:write'), validateParams(idParamSchema), validateBody(vendorPaymentSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params as unknown as { id: number };
+    const userId = (req as any).user?.userId;
+
+    // Verify vendor exists
+    const vendor = await req.prisma!.yarnVendor.findUnique({ where: { id } });
+    if (!vendor) {
+      throw AppError.notFound('Vendor');
+    }
+
+    // Generate voucher number
+    const year = new Date().getFullYear();
+    const lastVoucher = await req.prisma!.vendorPayment.findFirst({
+      where: { voucherNumber: { startsWith: `PAY-${year}-` } },
+      orderBy: { voucherNumber: 'desc' },
+    });
+
+    let nextNum = 1;
+    if (lastVoucher?.voucherNumber) {
+      const match = lastVoucher.voucherNumber.match(/PAY-\d{4}-(\d+)/);
+      if (match) nextNum = parseInt(match[1]) + 1;
+    }
+    const voucherNumber = `PAY-${year}-${String(nextNum).padStart(5, '0')}`;
+
+    // Use transaction to create payment and ledger entry
+    const result = await req.prisma!.$transaction(async (tx) => {
+      // Create payment record
+      const payment = await tx.vendorPayment.create({
+        data: {
+          yarnVendorId: id,
+          paymentDate: new Date(req.body.paymentDate),
+          amount: req.body.amount,
+          paymentMethod: req.body.paymentMethod,
+          voucherNumber,
+          referenceNumber: req.body.referenceNumber,
+          bankName: req.body.bankName,
+          chequeNumber: req.body.chequeNumber,
+          notes: req.body.notes,
+          createdBy: userId,
+        },
+      });
+
+      // Get last ledger entry for balance
+      const lastEntry = await tx.vendorLedgerEntry.findFirst({
+        where: { yarnVendorId: id },
+        orderBy: [{ entryDate: 'desc' }, { id: 'desc' }],
+      });
+
+      const previousBalance = lastEntry?.balance?.toNumber() || 0;
+      const newBalance = previousBalance - req.body.amount; // Credit reduces balance
+
+      // Create ledger entry
+      const ledgerEntry = await tx.vendorLedgerEntry.create({
+        data: {
+          yarnVendorId: id,
+          entryDate: new Date(req.body.paymentDate),
+          entryType: 'PAYMENT_MADE',
+          debit: 0,
+          credit: req.body.amount,
+          balance: newBalance,
+          referenceType: 'vendor_payment',
+          referenceId: payment.id,
+          referenceNumber: voucherNumber,
+          description: `Payment made via ${req.body.paymentMethod}`,
+        },
+      });
+
+      return { payment, ledgerEntry };
+    });
+
+    res.status(201).json(result.payment);
+  } catch (error) {
+    next(error);
+  }
 });
 
 // ============================================

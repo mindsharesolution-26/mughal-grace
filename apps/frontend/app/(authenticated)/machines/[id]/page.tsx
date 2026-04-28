@@ -264,6 +264,54 @@ export default function MachineDetailPage() {
         </div>
       )}
 
+      {/* Configured Needles (Manual Configuration) */}
+      {machine.needleConfigs && machine.needleConfigs.length > 0 && (
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Configured Needles</h3>
+              <p className="text-sm text-neutral-400">Manual configuration from machine setup</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-neutral-400">Total Needles</p>
+              <p className="text-xl font-semibold text-primary-400">
+                {machine.needleConfigs.reduce((sum, n) => sum + n.quantity, 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-factory-border">
+                  <th className="text-left text-sm font-medium text-neutral-400 pb-3 w-12">#</th>
+                  <th className="text-left text-sm font-medium text-neutral-400 pb-3">Needle Name</th>
+                  <th className="text-left text-sm font-medium text-neutral-400 pb-3">Position</th>
+                  <th className="text-right text-sm font-medium text-neutral-400 pb-3">Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {machine.needleConfigs.map((needle, index) => (
+                  <tr key={index} className="border-b border-factory-border last:border-0 hover:bg-factory-gray/50">
+                    <td className="py-3">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-500/20 text-primary-400 text-sm font-medium">
+                        {index + 1}
+                      </span>
+                    </td>
+                    <td className="py-3">
+                      <span className="text-white font-medium">{needle.name}</span>
+                    </td>
+                    <td className="py-3 text-neutral-300">{needle.position || '-'}</td>
+                    <td className="py-3 text-right text-white font-medium">
+                      {needle.quantity.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Current Needle Allocations */}
       {machine.needleAllocations && machine.needleAllocations.length > 0 && (
         <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">

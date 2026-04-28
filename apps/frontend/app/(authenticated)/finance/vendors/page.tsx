@@ -1,118 +1,47 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { StatsCard } from '@/components/molecules/StatsCard';
-import { YarnVendor, formatPKR } from '@/lib/types/vendor';
-
-// Mock data
-const mockVendors: YarnVendor[] = [
-  {
-    id: '1',
-    code: 'VND-001',
-    name: 'Textile Hub',
-    contactPerson: 'Ahmad Khan',
-    phone: '0300-1234567',
-    email: 'ahmad@textilehub.pk',
-    address: '123 Industrial Area',
-    city: 'Faisalabad',
-    country: 'Pakistan',
-    creditLimit: 500000,
-    paymentTerms: 30,
-    currentBalance: 125000,
-    rating: 4,
-    isActive: true,
-    createdAt: '2024-01-01',
-    updatedAt: '2024-01-20',
-  },
-  {
-    id: '2',
-    code: 'VND-002',
-    name: 'Yarn Masters',
-    contactPerson: 'Bilal Ahmed',
-    phone: '0321-9876543',
-    email: 'bilal@yarnmasters.com',
-    address: '456 Textile Market',
-    city: 'Karachi',
-    country: 'Pakistan',
-    creditLimit: 1000000,
-    paymentTerms: 45,
-    currentBalance: 280000,
-    rating: 5,
-    isActive: true,
-    createdAt: '2024-01-05',
-    updatedAt: '2024-01-22',
-  },
-  {
-    id: '3',
-    code: 'VND-003',
-    name: 'Fiber Co',
-    contactPerson: 'Usman Ali',
-    phone: '0333-5555555',
-    email: 'usman@fiberco.pk',
-    address: '789 Mill Road',
-    city: 'Lahore',
-    country: 'Pakistan',
-    creditLimit: 750000,
-    paymentTerms: 30,
-    currentBalance: 95000,
-    rating: 4,
-    isActive: true,
-    createdAt: '2024-01-10',
-    updatedAt: '2024-01-18',
-  },
-  {
-    id: '4',
-    code: 'VND-004',
-    name: 'Cotton World',
-    contactPerson: 'Rashid Malik',
-    phone: '0345-1111111',
-    address: '321 Cotton Plaza',
-    city: 'Multan',
-    country: 'Pakistan',
-    creditLimit: 300000,
-    paymentTerms: 15,
-    currentBalance: 45000,
-    rating: 3,
-    isActive: true,
-    createdAt: '2024-01-12',
-    updatedAt: '2024-01-15',
-  },
-  {
-    id: '5',
-    code: 'VND-005',
-    name: 'Premium Yarns',
-    contactPerson: 'Asad Shah',
-    phone: '0312-2222222',
-    email: 'asad@premiumyarns.pk',
-    city: 'Faisalabad',
-    country: 'Pakistan',
-    creditLimit: 600000,
-    paymentTerms: 30,
-    currentBalance: 0,
-    rating: 5,
-    isActive: false,
-    notes: 'Temporarily inactive due to quality issues',
-    createdAt: '2024-01-08',
-    updatedAt: '2024-01-19',
-  },
-];
+import { yarnVendorsApi, YarnVendor } from '@/lib/api/yarn-vendors';
+import { formatPKR } from '@/lib/types/vendor';
+import { Loader2, Search } from 'lucide-react';
 
 export default function VendorsPage() {
+  const [vendors, setVendors] = useState<YarnVendor[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
+  useEffect(() => {
+    loadVendors();
+  }, []);
+
+  const loadVendors = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await yarnVendorsApi.getAll();
+      setVendors(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load vendors');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Filter vendors
   const filteredVendors = useMemo(() => {
-    return mockVendors.filter((vendor) => {
+    return vendors.filter((vendor) => {
       const matchesSearch =
         searchQuery === '' ||
         vendor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         vendor.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        vendor.contactPerson.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        vendor.city?.toLowerCase().includes(searchQuery.toLowerCase());
+        (vendor.contactPerson?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (vendor.city?.toLowerCase() || '').includes(searchQuery.toLowerCase());
 
       const matchesStatus =
         statusFilter === 'all' ||
@@ -121,27 +50,32 @@ export default function VendorsPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [searchQuery, statusFilter]);
+  }, [vendors, searchQuery, statusFilter]);
 
   // Calculate stats
   const stats = useMemo(() => {
-    const totalVendors = mockVendors.length;
-    const activeVendors = mockVendors.filter((v) => v.isActive).length;
-    const totalOutstanding = mockVendors.reduce((sum, v) => sum + v.currentBalance, 0);
-    const overCreditLimit = mockVendors.filter(
-      (v) => v.currentBalance > v.creditLimit
-    ).length;
+    const totalVendors = vendors.length;
+    const activeVendors = vendors.filter((v) => v.isActive).length;
+    // For now, currentBalance would come from ledger aggregation
+    // We'll show credit limit stats instead
+    const totalCreditLimit = vendors.reduce((sum, v) => {
+      return sum + (v.creditLimit ? parseFloat(v.creditLimit) : 0);
+    }, 0);
+    const avgRating = vendors.filter(v => v.rating).length > 0
+      ? vendors.filter(v => v.rating).reduce((sum, v) => sum + (v.rating || 0), 0) / vendors.filter(v => v.rating).length
+      : 0;
 
     return {
       totalVendors,
       activeVendors,
-      totalOutstanding,
-      overCreditLimit,
+      totalCreditLimit,
+      avgRating,
     };
-  }, []);
+  }, [vendors]);
 
   // Render rating stars
-  const renderRating = (rating: number) => {
+  const renderRating = (rating: number | null) => {
+    if (!rating) return <span className="text-neutral-500">-</span>;
     return (
       <div className="flex gap-0.5">
         {[1, 2, 3, 4, 5].map((star) => (
@@ -155,6 +89,14 @@ export default function VendorsPage() {
       </div>
     );
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -170,13 +112,22 @@ export default function VendorsPage() {
           </div>
           <h1 className="text-2xl font-semibold text-white mt-2">Vendors</h1>
           <p className="text-neutral-400 mt-1">
-            Manage vendor information, balances, and ledgers
+            Manage yarn vendor information, balances, and ledgers
           </p>
         </div>
         <Link href="/finance/vendors/new">
           <Button>+ Add Vendor</Button>
         </Link>
       </div>
+
+      {error && (
+        <div className="bg-error/10 border border-error/20 rounded-xl p-4 text-error">
+          {error}
+          <Button variant="ghost" size="sm" onClick={loadVendors} className="ml-4">
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -193,27 +144,29 @@ export default function VendorsPage() {
           icon="✓"
         />
         <StatsCard
-          title="Total Outstanding"
-          value={formatPKR(stats.totalOutstanding)}
+          title="Total Credit Limit"
+          value={formatPKR(stats.totalCreditLimit)}
           icon="💳"
         />
         <StatsCard
-          title="Over Credit Limit"
-          value={stats.overCreditLimit}
-          change={stats.overCreditLimit > 0 ? 'Needs attention' : 'All within limit'}
-          changeType={stats.overCreditLimit > 0 ? 'negative' : 'positive'}
-          icon="⚠️"
+          title="Avg Rating"
+          value={stats.avgRating.toFixed(1)}
+          change={stats.avgRating >= 4 ? 'Excellent' : stats.avgRating >= 3 ? 'Good' : 'Needs improvement'}
+          changeType={stats.avgRating >= 4 ? 'positive' : stats.avgRating >= 3 ? 'neutral' : 'negative'}
+          icon="⭐"
         />
       </div>
 
       {/* Search and Filters */}
       <div className="bg-factory-dark rounded-2xl border border-factory-border p-4">
         <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
             <Input
               placeholder="Search by name, code, contact, or city..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
             />
           </div>
           <div className="flex gap-2">
@@ -226,7 +179,6 @@ export default function VendorsPage() {
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
             </select>
-            <Button variant="ghost">Export</Button>
           </div>
         </div>
       </div>
@@ -247,10 +199,10 @@ export default function VendorsPage() {
                   City
                 </th>
                 <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
-                  Balance
-                </th>
-                <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
                   Credit Limit
+                </th>
+                <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
+                  Payment Terms
                 </th>
                 <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
                   Rating
@@ -265,7 +217,7 @@ export default function VendorsPage() {
             </thead>
             <tbody className="divide-y divide-factory-border">
               {filteredVendors.map((vendor) => {
-                const isOverLimit = vendor.currentBalance > vendor.creditLimit;
+                const creditLimit = vendor.creditLimit ? parseFloat(vendor.creditLimit) : 0;
 
                 return (
                   <tr key={vendor.id} className="hover:bg-factory-gray transition-colors">
@@ -282,23 +234,20 @@ export default function VendorsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div>
-                        <p className="text-white">{vendor.contactPerson}</p>
-                        <p className="text-sm text-neutral-400">{vendor.phone}</p>
+                        {vendor.contactPerson && (
+                          <p className="text-white">{vendor.contactPerson}</p>
+                        )}
+                        <p className="text-sm text-neutral-400">{vendor.phone || '-'}</p>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-neutral-300">
                       {vendor.city || '-'}
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className={`font-medium ${isOverLimit ? 'text-error' : 'text-white'}`}>
-                        {formatPKR(vendor.currentBalance)}
-                      </span>
-                      {isOverLimit && (
-                        <p className="text-xs text-error">Over limit!</p>
-                      )}
-                    </td>
                     <td className="px-6 py-4 text-right text-neutral-300">
-                      {formatPKR(vendor.creditLimit)}
+                      {creditLimit > 0 ? formatPKR(creditLimit) : '-'}
+                    </td>
+                    <td className="px-6 py-4 text-center text-neutral-300">
+                      {vendor.paymentTerms} days
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-center">
@@ -338,9 +287,12 @@ export default function VendorsPage() {
             </tbody>
           </table>
 
-          {filteredVendors.length === 0 && (
+          {filteredVendors.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <p className="text-neutral-400">No vendors found.</p>
+              <Link href="/finance/vendors/new">
+                <Button className="mt-4">Add Your First Vendor</Button>
+              </Link>
             </div>
           )}
         </div>
@@ -359,7 +311,7 @@ export default function VendorsPage() {
           <div className="flex items-start gap-3">
             <span className="text-lg">⚠️</span>
             <p className="text-neutral-400">
-              Vendors with balance over their credit limit are highlighted in red.
+              Set credit limits to prevent exceeding payment capacity with any vendor.
             </p>
           </div>
           <div className="flex items-start gap-3">

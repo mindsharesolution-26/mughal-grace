@@ -27,6 +27,13 @@ export const machineStatusColors: Record<MachineStatus, { bg: string; text: stri
   DECOMMISSIONED: { bg: 'bg-neutral-700/20', text: 'text-neutral-500', dot: 'bg-neutral-600' },
 };
 
+// Needle Config (manual configuration from machine setup)
+export interface NeedleConfig {
+  name: string;
+  position?: string;
+  quantity: number;
+}
+
 // Machine Interface
 export interface Machine {
   id: number;
@@ -49,6 +56,7 @@ export interface Machine {
   totalNeedleSlots: number | null;
   cylinderNeedles: number | null;
   dialNeedles: number | null;
+  needleConfigs: NeedleConfig[] | null; // Manual needle entries
   createdAt: string;
   updatedAt: string;
   _count?: {

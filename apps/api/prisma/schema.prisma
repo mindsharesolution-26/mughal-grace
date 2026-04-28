@@ -556,6 +556,10 @@ model Roll {
   grade           String              @default("A") @db.VarChar(10)
   defects         Json?
   status          RollStatus          @default(GREY_STOCK)
+
+  // Color assigned when received from dyeing
+  colorId         Int?                @map("color_id")
+  color           Color?              @relation(fields: [colorId], references: [id])
   currentLocation String?             @map("current_location") @db.VarChar(100)
   producedAt      DateTime            @map("produced_at")
   createdAt       DateTime            @default(now()) @map("created_at")
@@ -569,6 +573,7 @@ model Roll {
   @@index([fabricType])
   @@index([producedAt])
   @@index([fabricId])
+  @@index([colorId])
   @@map("rolls")
   @@schema("tenant_template")
 }
@@ -692,7 +697,7 @@ model DyeingOrder {
   receivedWeight  Decimal?          @map("received_weight") @db.Decimal(12, 3)
   weightGainLoss  Decimal?          @map("weight_gain_loss") @db.Decimal(12, 3)
   weightVariance  Decimal?          @map("weight_variance") @db.Decimal(5, 2)
-  ratePerKg       Decimal           @map("rate_per_kg") @db.Decimal(10, 2)
+  ratePerKg       Decimal?          @map("rate_per_kg") @db.Decimal(10, 2)
   totalAmount     Decimal?          @map("total_amount") @db.Decimal(15, 2)
   sentAt          DateTime          @map("sent_at")
   expectedReturnAt DateTime?         @map("expected_return_at")
@@ -1962,6 +1967,7 @@ model Color {
 
   fabrics        Fabric[]
   products       Product[]
+  rolls          Roll[]
 
   @@index([isActive])
   @@map("colors")

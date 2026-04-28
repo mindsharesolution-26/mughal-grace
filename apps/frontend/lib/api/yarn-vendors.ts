@@ -41,6 +41,106 @@ export interface VendorFormData {
   isActive?: boolean;
 }
 
+// Ledger types
+export type VendorLedgerEntryType =
+  | 'OPENING_BALANCE'
+  | 'PURCHASE'
+  | 'PAYMENT_MADE'
+  | 'RETURN'
+  | 'ADJUSTMENT'
+  | 'DEBIT_NOTE'
+  | 'CREDIT_NOTE';
+
+export const vendorLedgerEntryTypeLabels: Record<VendorLedgerEntryType, string> = {
+  OPENING_BALANCE: 'Opening Balance',
+  PURCHASE: 'Purchase',
+  PAYMENT_MADE: 'Payment Made',
+  RETURN: 'Return',
+  ADJUSTMENT: 'Adjustment',
+  DEBIT_NOTE: 'Debit Note',
+  CREDIT_NOTE: 'Credit Note',
+};
+
+export interface VendorLedgerEntry {
+  id: number;
+  yarnVendorId: number;
+  entryDate: string;
+  entryType: VendorLedgerEntryType;
+  referenceType: string | null;
+  referenceId: number | null;
+  referenceNumber: string | null;
+  debit: string;
+  credit: string;
+  balance: string;
+  description: string | null;
+  createdAt: string;
+}
+
+export interface VendorLedgerResponse {
+  vendor: {
+    id: number;
+    code: string;
+    name: string;
+  };
+  entries: VendorLedgerEntry[];
+  summary: {
+    totalDebit: number;
+    totalCredit: number;
+    currentBalance: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface VendorLedgerEntryFormData {
+  entryDate: string;
+  entryType: VendorLedgerEntryType;
+  debit?: number;
+  credit?: number;
+  referenceType?: string;
+  referenceId?: number;
+  referenceNumber?: string;
+  description?: string;
+}
+
+export type VendorPaymentMethod = 'CASH' | 'CHEQUE' | 'BANK_TRANSFER' | 'ONLINE';
+
+export const vendorPaymentMethodLabels: Record<VendorPaymentMethod, string> = {
+  CASH: 'Cash',
+  CHEQUE: 'Cheque',
+  BANK_TRANSFER: 'Bank Transfer',
+  ONLINE: 'Online',
+};
+
+export interface VendorPayment {
+  id: number;
+  yarnVendorId: number;
+  paymentDate: string;
+  amount: string;
+  paymentMethod: VendorPaymentMethod;
+  voucherNumber: string;
+  referenceNumber: string | null;
+  bankName: string | null;
+  chequeNumber: string | null;
+  notes: string | null;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+export interface VendorPaymentFormData {
+  paymentDate: string;
+  amount: number;
+  paymentMethod: VendorPaymentMethod;
+  referenceNumber?: string;
+  bankName?: string;
+  chequeNumber?: string;
+  notes?: string;
+}
+
 export const yarnVendorsApi = {
   /**
    * Get lightweight lookup data for dropdowns
@@ -93,5 +193,47 @@ export const yarnVendorsApi = {
    */
   async delete(id: number): Promise<void> {
     await api.delete(`/yarn/vendors/${id}`);
+  },
+};
+
+// ============ VENDOR LEDGER ============
+
+export const vendorLedgerApi = {
+  /**
+   * Get vendor ledger entries
+   */
+  async getEntries(
+    vendorId: number,
+    params?: {
+      page?: number;
+      limit?: number;
+      fromDate?: string;
+      toDate?: string;
+    }
+  ): Promise<VendorLedgerResponse> {
+    const response = await api.get(`/yarn/vendors/${vendorId}/ledger`, { params });
+    return response.data;
+  },
+
+  /**
+   * Add ledger entry (opening balance, adjustment)
+   */
+  async addEntry(
+    vendorId: number,
+    data: VendorLedgerEntryFormData
+  ): Promise<VendorLedgerEntry> {
+    const response = await api.post(`/yarn/vendors/${vendorId}/ledger`, data);
+    return response.data;
+  },
+
+  /**
+   * Record payment to vendor
+   */
+  async recordPayment(
+    vendorId: number,
+    data: VendorPaymentFormData
+  ): Promise<VendorPayment> {
+    const response = await api.post(`/yarn/vendors/${vendorId}/payments`, data);
+    return response.data;
   },
 };
