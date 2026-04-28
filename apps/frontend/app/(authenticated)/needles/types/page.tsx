@@ -143,7 +143,9 @@ export default function NeedleTypesPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-primary-400 font-mono text-sm">{type.code}</span>
                           {type.barcode && (
-                            <QrCode className="w-4 h-4 text-neutral-500" title={type.barcode} />
+                            <span title={type.barcode}>
+                              <QrCode className="w-4 h-4 text-neutral-500" />
+                            </span>
                           )}
                         </div>
                       </td>
