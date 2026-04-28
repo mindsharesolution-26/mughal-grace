@@ -10,7 +10,8 @@ import { dyeingOrdersApi } from '@/lib/api/dyeing';
 import { colorsApi } from '@/lib/api/settings';
 import { DyeingOrder, DyeingOrderWithItems, DyeingOrderReceiveItem } from '@/lib/types/dyeing';
 import { Color } from '@/lib/types/settings';
-import { ArrowLeft, Package, Check, Scale, Palette, AlertTriangle } from 'lucide-react';
+import { dyeingPrinter, ReceivedRollData } from '@/lib/services/dyeingPrinter';
+import { ArrowLeft, Package, Check, Scale, Palette, AlertTriangle, Printer, CheckCircle } from 'lucide-react';
 
 interface ReceiveItemData {
   dyeingOrderItemId: number;
@@ -21,6 +22,8 @@ interface ReceiveItemData {
   grade: string;
   defects: string;
   colorId: number | null;
+  colorName?: string;
+  colorCode?: string;
   isSelected: boolean;
 }
 
@@ -36,6 +39,10 @@ export default function ReceiveFromDyeingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingOrder, setIsLoadingOrder] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  // Success state after receiving
+  const [receiveSuccess, setReceiveSuccess] = useState(false);
+  const [receivedRollsData, setReceivedRollsData] = useState<ReceivedRollData[]>([]);
 
   useEffect(() => {
     fetchData();
@@ -172,8 +179,26 @@ export default function ReceiveFromDyeingPage() {
       }));
 
       await dyeingOrdersApi.receive(selectedOrder!.id, receiveData);
+
+      // Prepare received rolls data for barcode printing
+      const receivedRolls: ReceivedRollData[] = selectedItems.map((item) => {
+        const color = colors.find((c) => c.id === item.colorId);
+        return {
+          rollNumber: item.rollNumber,
+          fabricType: item.fabricType,
+          colorName: color?.name || 'Unknown',
+          colorCode: color?.code,
+          finishedWeight: parseFloat(item.receivedWeight),
+          grade: item.grade || 'A',
+          dyeingOrderNumber: selectedOrder!.orderNumber,
+          vendorName: selectedOrder!.vendor.name,
+          receivedDate: new Date().toISOString(),
+        };
+      });
+
+      setReceivedRollsData(receivedRolls);
+      setReceiveSuccess(true);
       showToast('success', `Successfully received ${selectedItems.length} roll(s) from dyeing`);
-      router.push('/dyeing');
     } catch (error: any) {
       showToast('error', error.response?.data?.error || 'Failed to receive from dyeing');
     } finally {
@@ -181,11 +206,90 @@ export default function ReceiveFromDyeingPage() {
     }
   };
 
+  const handlePrintBarcodes = async () => {
+    if (receivedRollsData.length === 0) return;
+
+    setIsPrinting(true);
+    try {
+      await dyeingPrinter.printRollBarcodes(receivedRollsData);
+      showToast('success', 'Print dialog opened');
+    } catch (error) {
+      showToast('error', 'Failed to open print dialog');
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleDone = () => {
+    router.push('/dyeing');
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
         <span className="ml-3 text-neutral-400">Loading...</span>
+      </div>
+    );
+  }
+
+  // Success view - after receiving rolls
+  if (receiveSuccess) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-8 text-center">
+          <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-8 h-8 text-success" />
+          </div>
+          <h2 className="text-2xl font-semibold text-white mb-2">Rolls Received Successfully!</h2>
+          <p className="text-neutral-400 mb-6">
+            {receivedRollsData.length} roll(s) have been received and added to Dyed Stock
+          </p>
+
+          {/* Received Rolls Summary */}
+          <div className="bg-factory-gray rounded-xl p-4 max-w-2xl mx-auto mb-6">
+            <h3 className="text-sm font-medium text-neutral-400 mb-3">Received Rolls</h3>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {receivedRollsData.map((roll) => (
+                <div
+                  key={roll.rollNumber}
+                  className="flex items-center justify-between p-3 bg-factory-dark rounded-lg"
+                >
+                  <div className="text-left">
+                    <p className="font-mono text-primary-400">{roll.rollNumber}</p>
+                    <p className="text-sm text-neutral-500">
+                      {roll.fabricType} • {roll.colorName}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-white">{roll.finishedWeight.toFixed(2)} kg</p>
+                    <p className="text-sm text-neutral-500">Grade {roll.grade}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-center gap-4">
+            <Button
+              variant="primary"
+              onClick={handlePrintBarcodes}
+              disabled={isPrinting}
+              className="min-w-[180px]"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              {isPrinting ? 'Opening Print...' : 'Print Barcodes'}
+            </Button>
+            <Button variant="secondary" onClick={handleDone}>
+              Done
+            </Button>
+          </div>
+
+          <p className="text-neutral-500 text-sm mt-4">
+            Print barcode labels to attach to the dyed rolls for identification
+          </p>
+        </div>
       </div>
     );
   }

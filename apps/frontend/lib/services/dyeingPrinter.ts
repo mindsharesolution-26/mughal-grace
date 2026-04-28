@@ -321,6 +321,96 @@ function generateLabelZPL(data: DyeingOrderPrintData, copyType: DyeingPrintCopyT
   `.trim();
 }
 
+// Interface for received roll barcode data
+export interface ReceivedRollData {
+  rollNumber: string;
+  fabricType: string;
+  colorName: string;
+  colorCode?: string;
+  finishedWeight: number;
+  grade: string;
+  dyeingOrderNumber: string;
+  vendorName: string;
+  receivedDate: string;
+}
+
+// Generate barcode label HTML for a single received roll
+function generateRollBarcodeHTML(roll: ReceivedRollData): string {
+  return `
+    <div style="
+      width: 100mm;
+      height: 50mm;
+      padding: 3mm;
+      border: 1px solid #000;
+      font-family: Arial, sans-serif;
+      page-break-after: always;
+      box-sizing: border-box;
+    ">
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #ccc; padding-bottom: 2mm; margin-bottom: 2mm;">
+        <div style="font-size: 8px; color: #666;">DYED STOCK</div>
+        <div style="font-size: 8px; color: #666;">${formatDate(roll.receivedDate)}</div>
+      </div>
+
+      <div style="font-size: 16px; font-weight: bold; font-family: monospace; margin-bottom: 2mm;">
+        ${roll.rollNumber}
+      </div>
+
+      <div style="display: flex; gap: 4mm; margin-bottom: 2mm;">
+        <div style="flex: 1;">
+          <div style="font-size: 7px; color: #666;">Fabric</div>
+          <div style="font-size: 10px; font-weight: 500;">${roll.fabricType}</div>
+        </div>
+        <div style="flex: 1;">
+          <div style="font-size: 7px; color: #666;">Color</div>
+          <div style="font-size: 10px; font-weight: 500;">${roll.colorName}${roll.colorCode ? ` (${roll.colorCode})` : ''}</div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 4mm; margin-bottom: 2mm;">
+        <div style="flex: 1;">
+          <div style="font-size: 7px; color: #666;">Weight</div>
+          <div style="font-size: 12px; font-weight: bold;">${roll.finishedWeight.toFixed(2)} kg</div>
+        </div>
+        <div style="flex: 1;">
+          <div style="font-size: 7px; color: #666;">Grade</div>
+          <div style="font-size: 12px; font-weight: bold;">${roll.grade}</div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 4mm; font-size: 7px; color: #666;">
+        <div>Order: ${roll.dyeingOrderNumber}</div>
+        <div>Vendor: ${roll.vendorName}</div>
+      </div>
+
+      <div style="margin-top: 2mm; text-align: center;">
+        <svg id="barcode-${roll.rollNumber.replace(/[^a-zA-Z0-9]/g, '')}"></svg>
+      </div>
+    </div>
+  `;
+}
+
+// Generate ZPL barcode label for received roll (thermal printer)
+function generateRollBarcodeZPL(roll: ReceivedRollData): string {
+  // ZPL code for 100mm x 50mm label (approximately 800 x 400 dots at 203 DPI)
+  return `
+^XA
+^CI28
+^PW800
+^LL400
+^FO20,20^A0N,20,20^FDDYED STOCK^FS
+^FO600,20^A0N,18,18^FD${formatDate(roll.receivedDate)}^FS
+^FO20,50^A0N,36,36^FB760,1,0,L^FD${roll.rollNumber}^FS
+^FO20,100^A0N,22,22^FDFabric: ${roll.fabricType}^FS
+^FO400,100^A0N,22,22^FDColor: ${roll.colorName}^FS
+^FO20,135^A0N,28,28^FDWeight: ${roll.finishedWeight.toFixed(2)} kg^FS
+^FO400,135^A0N,28,28^FDGrade: ${roll.grade}^FS
+^FO20,175^A0N,18,18^FDOrder: ${roll.dyeingOrderNumber}^FS
+^FO300,175^A0N,18,18^FDVendor: ${roll.vendorName.substring(0, 20)}^FS
+^FO100,220^BY3^BCN,80,Y,N,N^FD${roll.rollNumber}^FS
+^XZ
+  `.trim();
+}
+
 export const dyeingPrinter = {
   /**
    * Generate A4 challan HTML for PDF printing
@@ -331,6 +421,76 @@ export const dyeingPrinter = {
    * Generate ZPL for thermal printer
    */
   generateLabelZPL,
+
+  /**
+   * Generate roll barcode HTML
+   */
+  generateRollBarcodeHTML,
+
+  /**
+   * Generate roll barcode ZPL
+   */
+  generateRollBarcodeZPL,
+
+  /**
+   * Print roll barcodes via browser (opens print dialog)
+   */
+  async printRollBarcodes(rolls: ReceivedRollData[]): Promise<boolean> {
+    if (rolls.length === 0) return false;
+
+    const labelsHTML = rolls.map(roll => generateRollBarcodeHTML(roll)).join('');
+
+    const fullHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dyed Roll Barcodes</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; }
+    @media print {
+      body { margin: 0; }
+      @page { size: 100mm 50mm; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  ${labelsHTML}
+  <script>
+    // Generate barcodes for each roll
+    ${rolls.map(roll => `
+      try {
+        JsBarcode("#barcode-${roll.rollNumber.replace(/[^a-zA-Z0-9]/g, '')}", "${roll.rollNumber}", {
+          format: "CODE128",
+          width: 2,
+          height: 40,
+          displayValue: false
+        });
+      } catch(e) { console.error(e); }
+    `).join('\n')}
+  </script>
+</body>
+</html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      console.error('Failed to open print window. Popup may be blocked.');
+      return false;
+    }
+
+    printWindow.document.write(fullHTML);
+    printWindow.document.close();
+
+    // Wait for barcodes to render, then print
+    printWindow.onload = () => {
+      setTimeout(() => printWindow.print(), 300);
+    };
+
+    return true;
+  },
 
   /**
    * Print challans via browser (opens print dialog)
