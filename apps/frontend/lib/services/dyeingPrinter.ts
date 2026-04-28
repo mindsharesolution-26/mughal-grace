@@ -525,7 +525,7 @@ export const dyeingPrinter = {
 <body>
   ${copies.map((copy, index) => `
     ${index > 0 ? '<div style="page-break-before: always;"></div>' : ''}
-    ${generateChallanHTML(data, copy).replace(/<\/?html>|<\/?body>|<head>.*<\/head>/gs, '')}
+    ${generateChallanHTML(data, copy).replace(/<\/?html>|<\/?body>|<head>[\s\S]*<\/head>/g, '')}
   `).join('')}
 </body>
 </html>
