@@ -52,10 +52,8 @@ dyeingRouter.get('/vendors', requirePermission('dyeing:read'), async (req: Reque
           where: {
             vendorId: vendor.id,
             status: 'COMPLETED',
-            NOT: [
-              { receivedAt: null },
-              { sentAt: null },
-            ],
+            receivedAt: { not: null },
+            sentAt: { not: null },
           },
           select: {
             sentAt: true,
