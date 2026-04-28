@@ -114,6 +114,12 @@ export default function DyeingPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          <Link href="/dyeing/stock">
+            <Button variant="secondary">Dyed Stock</Button>
+          </Link>
+          <Link href="/dyeing/receive">
+            <Button variant="secondary">Receive</Button>
+          </Link>
           <Link href="/dyeing/send">
             <Button>+ Send for Dyeing</Button>
           </Link>

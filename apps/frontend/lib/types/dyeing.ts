@@ -290,3 +290,97 @@ export const dyeingPrintCopyLabels: Record<DyeingPrintCopyType, string> = {
   GATE_PASS: 'Gate Pass Copy',
   DYEING: 'Dyeing Copy',
 };
+
+// ============ DYED FABRIC STOCK ============
+
+// Dyed fabric stock item (roll in DYEING_COMPLETE status)
+export interface DyedFabricStockItem {
+  id: number;
+  rollNumber: string;
+  qrCode: string | null;
+  fabricType: string;
+  greyWeight: number;
+  finishedWeight: number | null;
+  grade: string;
+  status: string;
+  producedAt: string;
+  updatedAt: string;
+  color: {
+    id: number;
+    code: string;
+    name: string;
+    hexCode: string | null;
+  } | null;
+  fabric: {
+    id: number;
+    code: string;
+    name: string;
+  } | null;
+  machine: {
+    id: number;
+    machineNumber: string;
+    name: string;
+  } | null;
+  dyeingOrder: {
+    id: number;
+    orderNumber: string;
+    vendor: {
+      id: number;
+      code: string;
+      name: string;
+    };
+  } | null;
+}
+
+// Dyed fabric stock list response
+export interface DyedFabricStockListResponse {
+  rolls: DyedFabricStockItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// Dyed fabric stock stats
+export interface DyedFabricStockStats {
+  totalRolls: number;
+  totalWeight: number;
+  recentCompletions: number;
+  byColor: {
+    colorId: number;
+    colorCode: string;
+    colorName: string;
+    hexCode: string;
+    rollCount: number;
+    totalWeight: number;
+  }[];
+  byFabric: {
+    fabricType: string;
+    rollCount: number;
+    totalWeight: number;
+  }[];
+}
+
+// Dyed fabric stock summary by fabric type
+export interface DyedFabricStockSummary {
+  fabricType: string;
+  totalRolls: number;
+  totalWeight: number;
+  colors: {
+    colorId: number;
+    colorCode: string;
+    colorName: string;
+    hexCode: string;
+    rollCount: number;
+    totalWeight: number;
+  }[];
+}
+
+// Bulk move response
+export interface BulkMoveResponse {
+  success: boolean;
+  movedCount: number;
+  message: string;
+}

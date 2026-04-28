@@ -15,6 +15,11 @@ import {
   DyeingStatus,
   ScannedRoll,
   DyeingOrderPrintData,
+  DyedFabricStockItem,
+  DyedFabricStockListResponse,
+  DyedFabricStockStats,
+  DyedFabricStockSummary,
+  BulkMoveResponse,
 } from '../types/dyeing';
 
 // ============ VENDORS ============
@@ -128,6 +133,48 @@ export const dyeingRollsApi = {
   // Lookup roll by QR code
   lookupByQR: async (qrCode: string): Promise<ScannedRoll> => {
     const response = await api.get(`/dyeing/rolls/by-qr/${encodeURIComponent(qrCode)}`);
+    return response.data;
+  },
+};
+
+// ============ DYED FABRIC STOCK ============
+
+export const dyedFabricStockApi = {
+  // Get dyed fabric stock stats for dashboard
+  getStats: async (): Promise<DyedFabricStockStats> => {
+    const response = await api.get('/dyeing/stock/stats');
+    return response.data;
+  },
+
+  // Get dyed fabric stock list with pagination
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    colorId?: number;
+    fabricType?: string;
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<DyedFabricStockListResponse> => {
+    const response = await api.get('/dyeing/stock', { params });
+    return response.data;
+  },
+
+  // Get summary by fabric type
+  getSummary: async (): Promise<DyedFabricStockSummary[]> => {
+    const response = await api.get('/dyeing/stock/summary');
+    return response.data;
+  },
+
+  // Move a single roll to finished stock
+  moveToFinished: async (rollId: number): Promise<DyedFabricStockItem> => {
+    const response = await api.put(`/dyeing/stock/${rollId}/move-to-finished`);
+    return response.data;
+  },
+
+  // Bulk move rolls to finished stock
+  bulkMoveToFinished: async (rollIds: number[]): Promise<BulkMoveResponse> => {
+    const response = await api.put('/dyeing/stock/bulk-move-to-finished', { rollIds });
     return response.data;
   },
 };

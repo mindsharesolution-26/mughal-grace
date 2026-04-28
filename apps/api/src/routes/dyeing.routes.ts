@@ -941,3 +941,340 @@ dyeingRouter.get('/rolls/available/summary', requirePermission('dyeing:read'), a
     next(error);
   }
 });
+
+// ============ DYED FABRIC STOCK ============
+
+// GET /dyeing/stock/stats - Get dyed fabric stock dashboard stats
+dyeingRouter.get('/stock/stats', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Get total count and weight of DYEING_COMPLETE rolls
+    const totals = await req.prisma!.roll.aggregate({
+      where: { status: 'DYEING_COMPLETE' },
+      _count: { id: true },
+      _sum: { finishedWeight: true },
+    });
+
+    // Get count by color
+    const byColor = await req.prisma!.roll.groupBy({
+      by: ['colorId'],
+      where: {
+        status: 'DYEING_COMPLETE',
+        colorId: { not: null },
+      },
+      _count: { id: true },
+      _sum: { finishedWeight: true },
+    });
+
+    // Fetch color details
+    const colorIds = byColor.map(c => c.colorId).filter(Boolean) as number[];
+    const colors = colorIds.length > 0
+      ? await req.prisma!.color.findMany({ where: { id: { in: colorIds } } })
+      : [];
+
+    const colorMap = new Map(colors.map(c => [c.id, c]));
+
+    // Get count by fabric type
+    const byFabric = await req.prisma!.roll.groupBy({
+      by: ['fabricType'],
+      where: { status: 'DYEING_COMPLETE' },
+      _count: { id: true },
+      _sum: { finishedWeight: true },
+    });
+
+    // Get recent completions (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const recentCompletions = await req.prisma!.roll.count({
+      where: {
+        status: 'DYEING_COMPLETE',
+        updatedAt: { gte: sevenDaysAgo },
+      },
+    });
+
+    res.json({
+      totalRolls: totals._count.id,
+      totalWeight: Number(totals._sum.finishedWeight) || 0,
+      recentCompletions,
+      byColor: byColor.map(c => ({
+        colorId: c.colorId,
+        colorCode: colorMap.get(c.colorId!)?.code || 'Unknown',
+        colorName: colorMap.get(c.colorId!)?.name || 'Unknown',
+        hexCode: colorMap.get(c.colorId!)?.hexCode || '#999999',
+        rollCount: c._count.id,
+        totalWeight: Number(c._sum.finishedWeight) || 0,
+      })),
+      byFabric: byFabric.map(f => ({
+        fabricType: f.fabricType,
+        rollCount: f._count.id,
+        totalWeight: Number(f._sum.finishedWeight) || 0,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /dyeing/stock - Get dyed fabric stock (DYEING_COMPLETE rolls) with pagination
+dyeingRouter.get('/stock', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      page = '1',
+      limit = '20',
+      search,
+      colorId,
+      fabricType,
+      fromDate,
+      toDate,
+    } = req.query;
+
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {
+      status: 'DYEING_COMPLETE',
+    };
+
+    if (search) {
+      where.OR = [
+        { rollNumber: { contains: search as string, mode: 'insensitive' } },
+        { fabricType: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    if (colorId) {
+      where.colorId = parseInt(colorId as string);
+    }
+
+    if (fabricType) {
+      where.fabricType = fabricType;
+    }
+
+    if (fromDate || toDate) {
+      where.updatedAt = {};
+      if (fromDate) where.updatedAt.gte = new Date(fromDate as string);
+      if (toDate) where.updatedAt.lte = new Date(toDate as string);
+    }
+
+    const [rolls, total] = await Promise.all([
+      req.prisma!.roll.findMany({
+        where,
+        skip,
+        take: limitNum,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          color: {
+            select: { id: true, code: true, name: true, hexCode: true },
+          },
+          fabric: {
+            select: { id: true, code: true, name: true },
+          },
+          machine: {
+            select: { id: true, machineNumber: true, name: true },
+          },
+          dyeingItems: {
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              dyeingOrder: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  vendor: {
+                    select: { id: true, code: true, name: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      req.prisma!.roll.count({ where }),
+    ]);
+
+    // Format response
+    const formattedRolls = rolls.map(roll => ({
+      id: roll.id,
+      rollNumber: roll.rollNumber,
+      qrCode: roll.qrCode,
+      fabricType: roll.fabricType,
+      greyWeight: Number(roll.greyWeight),
+      finishedWeight: roll.finishedWeight ? Number(roll.finishedWeight) : null,
+      grade: roll.grade,
+      status: roll.status,
+      producedAt: roll.producedAt,
+      updatedAt: roll.updatedAt,
+      color: roll.color,
+      fabric: roll.fabric,
+      machine: roll.machine,
+      dyeingOrder: roll.dyeingItems[0]?.dyeingOrder || null,
+    }));
+
+    res.json({
+      rolls: formattedRolls,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /dyeing/stock/summary - Get summary of dyed fabric stock by fabric and color
+dyeingRouter.get('/stock/summary', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Group by fabric type and color
+    const summary = await req.prisma!.roll.groupBy({
+      by: ['fabricType', 'colorId'],
+      where: { status: 'DYEING_COMPLETE' },
+      _count: { id: true },
+      _sum: { finishedWeight: true },
+    });
+
+    // Get all unique color IDs
+    const colorIds = [...new Set(summary.map(s => s.colorId).filter(Boolean))] as number[];
+    const colors = colorIds.length > 0
+      ? await req.prisma!.color.findMany({ where: { id: { in: colorIds } } })
+      : [];
+
+    const colorMap = new Map(colors.map(c => [c.id, c]));
+
+    // Group by fabric type
+    const byFabric: Record<string, any> = {};
+    for (const s of summary) {
+      if (!byFabric[s.fabricType]) {
+        byFabric[s.fabricType] = {
+          fabricType: s.fabricType,
+          totalRolls: 0,
+          totalWeight: 0,
+          colors: [],
+        };
+      }
+      byFabric[s.fabricType].totalRolls += s._count.id;
+      byFabric[s.fabricType].totalWeight += Number(s._sum.finishedWeight) || 0;
+
+      if (s.colorId) {
+        const color = colorMap.get(s.colorId);
+        byFabric[s.fabricType].colors.push({
+          colorId: s.colorId,
+          colorCode: color?.code || 'Unknown',
+          colorName: color?.name || 'Unknown',
+          hexCode: color?.hexCode || '#999999',
+          rollCount: s._count.id,
+          totalWeight: Number(s._sum.finishedWeight) || 0,
+        });
+      }
+    }
+
+    res.json(Object.values(byFabric));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /dyeing/stock/:rollId/move-to-finished - Move a roll from DYEING_COMPLETE to FINISHED_STOCK
+dyeingRouter.put('/stock/:rollId/move-to-finished', requirePermission('dyeing:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rollId = parseInt(req.params.rollId as string);
+
+    const roll = await req.prisma!.roll.findUnique({
+      where: { id: rollId },
+    });
+
+    if (!roll) {
+      throw AppError.notFound('Roll');
+    }
+
+    if (roll.status !== 'DYEING_COMPLETE') {
+      throw AppError.badRequest('Roll must be in DYEING_COMPLETE status to move to finished stock');
+    }
+
+    const updatedRoll = await req.prisma!.roll.update({
+      where: { id: rollId },
+      data: {
+        status: 'FINISHED_STOCK',
+        updatedAt: new Date(),
+      },
+      include: {
+        color: true,
+        fabric: true,
+      },
+    });
+
+    // Create status history entry
+    await req.prisma!.rollStatusHistory.create({
+      data: {
+        rollId: rollId,
+        fromStatus: 'DYEING_COMPLETE',
+        toStatus: 'FINISHED_STOCK',
+        notes: 'Moved to finished stock',
+      },
+    });
+
+    res.json(updatedRoll);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk move schema
+const bulkMoveSchema = z.object({
+  rollIds: z.array(z.number().int().positive()).min(1),
+});
+
+// PUT /dyeing/stock/bulk-move-to-finished - Bulk move rolls to FINISHED_STOCK
+dyeingRouter.put('/stock/bulk-move-to-finished', requirePermission('dyeing:write'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = bulkMoveSchema.parse(req.body);
+
+    // Verify all rolls exist and are in DYEING_COMPLETE status
+    const rolls = await req.prisma!.roll.findMany({
+      where: { id: { in: data.rollIds } },
+    });
+
+    const invalidRolls = rolls.filter(r => r.status !== 'DYEING_COMPLETE');
+    if (invalidRolls.length > 0) {
+      throw AppError.badRequest(
+        `${invalidRolls.length} roll(s) are not in DYEING_COMPLETE status: ${invalidRolls.map(r => r.rollNumber).join(', ')}`
+      );
+    }
+
+    if (rolls.length !== data.rollIds.length) {
+      throw AppError.badRequest('Some rolls were not found');
+    }
+
+    // Update all rolls in a transaction
+    await req.prisma!.$transaction(async (tx) => {
+      await tx.roll.updateMany({
+        where: { id: { in: data.rollIds } },
+        data: {
+          status: 'FINISHED_STOCK',
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create status history entries
+      await tx.rollStatusHistory.createMany({
+        data: data.rollIds.map(rollId => ({
+          rollId,
+          fromStatus: 'DYEING_COMPLETE',
+          toStatus: 'FINISHED_STOCK',
+          notes: 'Bulk moved to finished stock',
+        })),
+      });
+    });
+
+    res.json({
+      success: true,
+      movedCount: data.rollIds.length,
+      message: `${data.rollIds.length} roll(s) moved to finished stock`,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
