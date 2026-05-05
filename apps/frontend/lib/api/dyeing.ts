@@ -22,6 +22,9 @@ import {
   BulkMoveResponse,
 } from '../types/dyeing';
 
+// Re-export types for convenience
+export type { DyeingVendor, DyeingVendorWithStats, DyeingVendorLookup, DyeingVendorFormData };
+
 // ============ VENDORS ============
 
 export const dyeingVendorsApi = {

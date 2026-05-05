@@ -46,6 +46,16 @@ const createRollSchema = z.object({
   { message: 'Either fabricId OR (machineId + fabricType) must be provided' }
 );
 
+// Schema for batch roll creation (LOT mode)
+const createBatchRollsSchema = z.object({
+  fabricId: z.number().int().positive(),
+  rolls: z.array(z.object({
+    greyWeight: z.number().positive(),
+    grade: z.string().max(10).optional(),
+    defectNotes: z.string().optional(),
+  })).min(1).max(50),  // Allow 1-50 rolls per batch
+});
+
 const updateRollStatusSchema = z.object({
   status: rollStatusEnum,
   notes: z.string().optional(),
@@ -531,6 +541,158 @@ rollsRouter.post('/', requirePermission('rolls:write'), validateBody(createRollS
     res.status(201).json({
       data: roll,
       message: 'Roll created successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========================================
+// POST /rolls/batch - Create multiple rolls at once (LOT mode)
+// ========================================
+rollsRouter.post('/batch', requirePermission('rolls:write'), validateBody(createBatchRollsSchema), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { fabricId, rolls: rollsData } = req.body;
+    const userId = req.user?.userId;
+
+    // Fetch and validate fabric
+    const fabric = await req.prisma!.fabric.findUnique({
+      where: { id: fabricId },
+      include: {
+        machine: { select: { id: true, machineNumber: true, name: true } },
+      }
+    });
+
+    if (!fabric) {
+      throw AppError.notFound('Fabric');
+    }
+
+    if (!fabric.machineId) {
+      throw AppError.badRequest('Selected Fabric does not have a machine assigned');
+    }
+
+    // Generate sequential roll numbers
+    const today = new Date();
+    const dateStr = today.toISOString().slice(2, 10).replace(/-/g, '');
+    const prefix = `R-${dateStr}-`;
+
+    // Find the latest roll number with this prefix
+    const latestRoll = await req.prisma!.roll.findFirst({
+      where: {
+        rollNumber: { startsWith: prefix }
+      },
+      orderBy: { rollNumber: 'desc' },
+      select: { rollNumber: true }
+    });
+
+    let startSequence = 1;
+    if (latestRoll?.rollNumber) {
+      const lastSeq = parseInt(latestRoll.rollNumber.replace(prefix, ''), 10);
+      if (!isNaN(lastSeq)) {
+        startSequence = lastSeq + 1;
+      }
+    }
+
+    // Calculate total weight for stock update
+    const totalWeight = rollsData.reduce((sum: number, r: any) => sum + r.greyWeight, 0);
+
+    // Create all rolls in a transaction (with extended timeout for batch operations)
+    const createdRolls = await req.prisma!.$transaction(async (tx: any) => {
+      const results = [];
+
+      for (let i = 0; i < rollsData.length; i++) {
+        const rollData = rollsData[i];
+        const rollNumber = `${prefix}${(startSequence + i).toString().padStart(4, '0')}`;
+        const qrCode = generateQRCode();
+
+        // Create roll
+        const newRoll = await tx.roll.create({
+          data: {
+            rollNumber,
+            qrCode,
+            fabricId: fabric.id,
+            machineId: fabric.machineId,
+            fabricType: fabric.name,
+            greyWeight: rollData.greyWeight,
+            grade: rollData.grade || 'A',
+            defectNotes: rollData.defectNotes,
+            status: 'GREY_STOCK',
+            producedAt: new Date(),
+          },
+          include: {
+            machine: {
+              select: {
+                id: true,
+                machineNumber: true,
+                name: true,
+              }
+            },
+            fabric: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              }
+            }
+          }
+        });
+
+        // Create status history
+        await tx.rollStatusHistory.create({
+          data: {
+            rollId: newRoll.id,
+            toStatus: 'GREY_STOCK',
+            notes: `Roll created in LOT batch from Fabric: ${fabric.code} (${fabric.name})`,
+            changedBy: userId,
+          }
+        });
+
+        // Create stock movement for each roll
+        await tx.fabricStockMovement.create({
+          data: {
+            fabricId: fabric.id,
+            type: 'IN',
+            quantity: rollData.greyWeight,
+            referenceNumber: newRoll.rollNumber,
+            sourceType: 'PRODUCTION',
+            notes: `LOT production roll: ${newRoll.rollNumber}`,
+            createdBy: userId,
+          }
+        });
+
+        results.push(newRoll);
+      }
+
+      // Update fabric stock (total weight of all rolls)
+      await tx.fabric.update({
+        where: { id: fabricId },
+        data: {
+          currentStock: {
+            increment: totalWeight
+          }
+        }
+      });
+
+      return results;
+    }, {
+      timeout: 30000, // 30 seconds for batch operations
+    });
+
+    logger.info(`LOT batch created: ${createdRolls.length} rolls for Fabric ${fabric.code}, total weight: ${totalWeight}kg`);
+
+    res.status(201).json({
+      data: createdRolls,
+      summary: {
+        totalRolls: createdRolls.length,
+        totalWeight: totalWeight,
+        averageWeight: totalWeight / createdRolls.length,
+        fabric: {
+          id: fabric.id,
+          code: fabric.code,
+          name: fabric.name,
+        }
+      },
+      message: `${createdRolls.length} rolls created successfully`,
     });
   } catch (error) {
     next(error);

@@ -1,5 +1,19 @@
 import { api } from './client';
 
+// Common supplier types for textile factories
+export const SUPPLIER_TYPES = [
+  'Needles',
+  'Spare Parts',
+  'Chemicals',
+  'Packaging',
+  'Oil & Lubricants',
+  'Stationery',
+  'Electrical',
+  'Transport',
+  'Maintenance',
+  'Other',
+] as const;
+
 // Lightweight lookup type for dropdowns
 export interface SupplierLookup {
   id: number;

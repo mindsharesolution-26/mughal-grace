@@ -215,23 +215,23 @@ export default function DyedFabricStockPage() {
         <StatsCard
           title="Total Rolls"
           value={stats?.totalRolls || 0}
-          icon={<Package className="w-5 h-5" />}
-          trend={stats?.recentCompletions ? `+${stats.recentCompletions} this week` : undefined}
+          icon="📦"
+          change={stats?.recentCompletions ? `+${stats.recentCompletions} this week` : undefined}
         />
         <StatsCard
           title="Total Weight"
           value={`${(stats?.totalWeight || 0).toFixed(1)} kg`}
-          icon={<Scale className="w-5 h-5" />}
+          icon="⚖️"
         />
         <StatsCard
           title="Color Variants"
           value={stats?.byColor.length || 0}
-          icon={<Palette className="w-5 h-5" />}
+          icon="🎨"
         />
         <StatsCard
           title="Fabric Types"
           value={stats?.byFabric.length || 0}
-          icon={<Layers className="w-5 h-5" />}
+          icon="🧶"
         />
       </div>
 

@@ -478,7 +478,7 @@ export default function SendForDyeingPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {vendors.map((vendor) => (
                     <button
-                      key={vendor.id}
+                      key={`vendor-${vendor.id}`}
                       type="button"
                       onClick={() => setSelectedVendor(vendor)}
                       className={cn(

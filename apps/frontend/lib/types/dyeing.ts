@@ -49,10 +49,13 @@ export interface DyeingVendorWithStats extends DyeingVendor {
   avgWeightVariance: number;
 }
 
+export type VendorType = 'DYEING' | 'YARN';
+
 export interface DyeingVendorLookup {
   id: number;
   code: string;
   name: string;
+  vendorType?: VendorType; // DYEING for dyeing vendors, YARN for finance vendors
 }
 
 export interface DyeingVendorFormData {
@@ -127,6 +130,7 @@ export interface DyeingOrderWithItems extends DyeingOrder {
 
 export interface DyeingOrderCreateData {
   vendorId: number;
+  vendorType?: VendorType; // Type of vendor (DYEING or YARN from finance)
   colorCode?: string;
   colorName?: string;
   processType?: string;

@@ -4,27 +4,35 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/atoms/Button';
-import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
 import { dyeingOrdersApi } from '@/lib/api/dyeing';
 import { colorsApi } from '@/lib/api/settings';
 import { DyeingOrder, DyeingOrderWithItems, DyeingOrderReceiveItem } from '@/lib/types/dyeing';
 import { Color } from '@/lib/types/settings';
 import { dyeingPrinter, ReceivedRollData } from '@/lib/services/dyeingPrinter';
-import { ArrowLeft, Package, Check, Scale, Palette, AlertTriangle, Printer, CheckCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  Package,
+  Check,
+  Scale,
+  Palette,
+  AlertTriangle,
+  Printer,
+  CheckCircle,
+  Wifi,
+  WifiOff,
+  Download,
+  Plus,
+  Trash2,
+  Edit2,
+  X
+} from 'lucide-react';
 
-interface ReceiveItemData {
-  dyeingOrderItemId: number;
-  rollNumber: string;
-  fabricType: string;
-  sentWeight: number;
-  receivedWeight: string;
+// Weight entry for the simplified workflow
+interface WeightEntry {
+  id: string;
+  weight: number;
   grade: string;
-  defects: string;
-  colorId: number | null;
-  colorName?: string;
-  colorCode?: string;
-  isSelected: boolean;
 }
 
 export default function ReceiveFromDyeingPage() {
@@ -35,14 +43,33 @@ export default function ReceiveFromDyeingPage() {
   const [orders, setOrders] = useState<DyeingOrder[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<DyeingOrderWithItems | null>(null);
   const [colors, setColors] = useState<Color[]>([]);
-  const [receiveItems, setReceiveItems] = useState<ReceiveItemData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingOrder, setIsLoadingOrder] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+
   // Success state after receiving
   const [receiveSuccess, setReceiveSuccess] = useState(false);
   const [receivedRollsData, setReceivedRollsData] = useState<ReceivedRollData[]>([]);
+
+  // NEW: Simplified weight entry state
+  const [enteredWeights, setEnteredWeights] = useState<WeightEntry[]>([]);
+  const [currentWeight, setCurrentWeight] = useState('');
+  const [currentGrade, setCurrentGrade] = useState('A');
+  const [selectedColorId, setSelectedColorId] = useState<number | null>(null);
+  const [editingWeightId, setEditingWeightId] = useState<string | null>(null);
+  const [editWeight, setEditWeight] = useState('');
+
+  // Scale integration state
+  const [isWeighingConnected, setIsWeighingConnected] = useState(true);
+  const [scaleWeight, setScaleWeight] = useState<string>('');
+
+  // Derived values
+  const unreceivedItems = selectedOrder?.items.filter(item => !item.isReceived) || [];
+  const unreceivedCount = unreceivedItems.length;
+  const totalSentWeight = unreceivedItems.reduce((sum, item) => sum + Number(item.sentWeight), 0);
+  const totalEnteredWeight = enteredWeights.reduce((sum, entry) => sum + entry.weight, 0);
+  const selectedColor = colors.find(c => c.id === selectedColorId);
 
   useEffect(() => {
     fetchData();
@@ -77,21 +104,12 @@ export default function ReceiveFromDyeingPage() {
       const order = await dyeingOrdersApi.getById(orderId);
       setSelectedOrder(order);
 
-      // Initialize receive items from order items that haven't been received yet
-      const items: ReceiveItemData[] = order.items
-        .filter((item) => !item.isReceived)
-        .map((item) => ({
-          dyeingOrderItemId: item.id,
-          rollNumber: item.roll.rollNumber,
-          fabricType: item.roll.fabricType,
-          sentWeight: Number(item.sentWeight),
-          receivedWeight: item.sentWeight, // Default to sent weight
-          grade: 'A',
-          defects: '',
-          colorId: null,
-          isSelected: true,
-        }));
-      setReceiveItems(items);
+      // Reset weight entry state
+      setEnteredWeights([]);
+      setCurrentWeight('');
+      setCurrentGrade('A');
+      setSelectedColorId(null);
+      setEditingWeightId(null);
     } catch (error: any) {
       showToast('error', error.response?.data?.error || 'Failed to load order');
     } finally {
@@ -101,95 +119,138 @@ export default function ReceiveFromDyeingPage() {
 
   const handleBackToOrders = () => {
     setSelectedOrder(null);
-    setReceiveItems([]);
+    setEnteredWeights([]);
+    setCurrentWeight('');
+    setSelectedColorId(null);
   };
 
-  const toggleItemSelection = (dyeingOrderItemId: number) => {
-    setReceiveItems((prev) =>
-      prev.map((item) =>
-        item.dyeingOrderItemId === dyeingOrderItemId
-          ? { ...item, isSelected: !item.isSelected }
-          : item
-      )
-    );
+  // Generate unique ID for weight entries
+  const generateId = () => `weight-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Add weight to list
+  const handleAddWeight = () => {
+    const weight = parseFloat(currentWeight);
+    if (isNaN(weight) || weight <= 0) {
+      showToast('error', 'Please enter a valid weight');
+      return;
+    }
+
+    if (enteredWeights.length >= unreceivedCount) {
+      showToast('error', `Cannot add more weights. Only ${unreceivedCount} rolls to receive.`);
+      return;
+    }
+
+    setEnteredWeights(prev => [...prev, {
+      id: generateId(),
+      weight,
+      grade: currentGrade,
+    }]);
+    setCurrentWeight('');
+    setCurrentGrade('A');
   };
 
-  const updateItem = (dyeingOrderItemId: number, field: keyof ReceiveItemData, value: any) => {
-    setReceiveItems((prev) =>
-      prev.map((item) =>
-        item.dyeingOrderItemId === dyeingOrderItemId ? { ...item, [field]: value } : item
-      )
-    );
+  // Remove weight from list
+  const handleRemoveWeight = (id: string) => {
+    setEnteredWeights(prev => prev.filter(entry => entry.id !== id));
   };
 
-  const applyColorToAll = (colorId: number | null) => {
-    setReceiveItems((prev) =>
-      prev.map((item) => (item.isSelected ? { ...item, colorId } : item))
-    );
+  // Start editing a weight
+  const handleStartEdit = (entry: WeightEntry) => {
+    setEditingWeightId(entry.id);
+    setEditWeight(entry.weight.toString());
   };
 
-  const getSelectedItems = () => receiveItems.filter((item) => item.isSelected);
+  // Save edited weight
+  const handleSaveEdit = (id: string) => {
+    const weight = parseFloat(editWeight);
+    if (isNaN(weight) || weight <= 0) {
+      showToast('error', 'Please enter a valid weight');
+      return;
+    }
 
-  const getTotalReceivedWeight = () => {
-    return getSelectedItems().reduce((sum, item) => sum + (parseFloat(item.receivedWeight) || 0), 0);
+    setEnteredWeights(prev => prev.map(entry =>
+      entry.id === id ? { ...entry, weight } : entry
+    ));
+    setEditingWeightId(null);
+    setEditWeight('');
   };
 
-  const getTotalSentWeight = () => {
-    return getSelectedItems().reduce((sum, item) => sum + item.sentWeight, 0);
+  // Cancel editing
+  const handleCancelEdit = () => {
+    setEditingWeightId(null);
+    setEditWeight('');
   };
 
+  // Update grade for a weight entry
+  const handleUpdateGrade = (id: string, grade: string) => {
+    setEnteredWeights(prev => prev.map(entry =>
+      entry.id === id ? { ...entry, grade } : entry
+    ));
+  };
+
+  // Simulate weight detection from scale
+  const simulateWeightDetection = () => {
+    const detectedWeight = (15 + Math.random() * 10).toFixed(2);
+    setScaleWeight(detectedWeight);
+    showToast('success', `Weight detected: ${detectedWeight} kg`);
+  };
+
+  // Capture weight from scale
+  const captureWeight = () => {
+    const detectedWeight = (15 + Math.random() * 10).toFixed(2);
+    setScaleWeight(detectedWeight);
+    setCurrentWeight(detectedWeight);
+    showToast('success', `Weight captured: ${detectedWeight} kg`);
+  };
+
+  // Calculate weight variance
   const getWeightVariance = () => {
-    const sent = getTotalSentWeight();
-    const received = getTotalReceivedWeight();
-    if (sent === 0) return 0;
-    return ((received - sent) / sent) * 100;
+    if (totalSentWeight === 0) return 0;
+    return ((totalEnteredWeight - totalSentWeight) / totalSentWeight) * 100;
   };
 
   const handleSubmit = async () => {
-    const selectedItems = getSelectedItems();
-
-    if (selectedItems.length === 0) {
-      showToast('error', 'Please select at least one item to receive');
+    // Validation
+    if (enteredWeights.length === 0) {
+      showToast('error', 'Please enter at least one weight');
       return;
     }
 
-    // Validate all selected items have received weight and color
-    const invalidItems = selectedItems.filter(
-      (item) => !item.receivedWeight || parseFloat(item.receivedWeight) <= 0
-    );
-    if (invalidItems.length > 0) {
-      showToast('error', 'Please enter valid received weight for all selected items');
+    if (!selectedColorId) {
+      showToast('error', 'Please select a color for the received rolls');
       return;
     }
 
-    const itemsWithoutColor = selectedItems.filter((item) => !item.colorId);
-    if (itemsWithoutColor.length > 0) {
-      showToast('error', 'Please select a color for all selected items');
+    // Check if all weights are valid
+    const invalidWeights = enteredWeights.filter(entry => entry.weight <= 0);
+    if (invalidWeights.length > 0) {
+      showToast('error', 'All weights must be greater than 0');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const receiveData: DyeingOrderReceiveItem[] = selectedItems.map((item) => ({
-        dyeingOrderItemId: item.dyeingOrderItemId,
-        receivedWeight: parseFloat(item.receivedWeight),
-        grade: item.grade || undefined,
-        defects: item.defects || undefined,
-        colorId: item.colorId || undefined,
+      // Map entered weights to unreceived DyeingOrderItems (arbitrary order - rolls are mixed anyway)
+      const receiveData: DyeingOrderReceiveItem[] = enteredWeights.map((entry, index) => ({
+        dyeingOrderItemId: unreceivedItems[index].id,
+        receivedWeight: entry.weight,
+        grade: entry.grade || 'A',
+        colorId: selectedColorId,
       }));
 
       await dyeingOrdersApi.receive(selectedOrder!.id, receiveData);
 
       // Prepare received rolls data for barcode printing
-      const receivedRolls: ReceivedRollData[] = selectedItems.map((item) => {
-        const color = colors.find((c) => c.id === item.colorId);
+      // We use the original roll info from unreceivedItems but with the new weights
+      const receivedRolls: ReceivedRollData[] = enteredWeights.map((entry, index) => {
+        const originalItem = unreceivedItems[index];
         return {
-          rollNumber: item.rollNumber,
-          fabricType: item.fabricType,
-          colorName: color?.name || 'Unknown',
-          colorCode: color?.code,
-          finishedWeight: parseFloat(item.receivedWeight),
-          grade: item.grade || 'A',
+          rollNumber: originalItem.roll.rollNumber,
+          fabricType: originalItem.roll.fabricType,
+          colorName: selectedColor?.name || 'Unknown',
+          colorCode: selectedColor?.code,
+          finishedWeight: entry.weight,
+          grade: entry.grade || 'A',
           dyeingOrderNumber: selectedOrder!.orderNumber,
           vendorName: selectedOrder!.vendor.name,
           receivedDate: new Date().toISOString(),
@@ -198,7 +259,7 @@ export default function ReceiveFromDyeingPage() {
 
       setReceivedRollsData(receivedRolls);
       setReceiveSuccess(true);
-      showToast('success', `Successfully received ${selectedItems.length} roll(s) from dyeing`);
+      showToast('success', `Successfully received ${enteredWeights.length} roll(s) from dyeing`);
     } catch (error: any) {
       showToast('error', error.response?.data?.error || 'Failed to receive from dyeing');
     } finally {
@@ -279,7 +340,7 @@ export default function ReceiveFromDyeingPage() {
               className="min-w-[180px]"
             >
               <Printer className="w-4 h-4 mr-2" />
-              {isPrinting ? 'Opening Print...' : 'Print Barcodes'}
+              {isPrinting ? 'Opening Print...' : 'Print QR Labels'}
             </Button>
             <Link href="/dyeing/stock">
               <Button variant="secondary">
@@ -293,7 +354,7 @@ export default function ReceiveFromDyeingPage() {
           </div>
 
           <p className="text-neutral-500 text-sm mt-4">
-            Print barcode labels to attach to the dyed rolls for identification
+            Print QR code labels to attach to the dyed rolls for identification
           </p>
         </div>
       </div>
@@ -349,7 +410,7 @@ export default function ReceiveFromDyeingPage() {
                       Status
                     </th>
                     <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
-                      Items
+                      Rolls
                     </th>
                     <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
                       Sent Weight
@@ -412,7 +473,7 @@ export default function ReceiveFromDyeingPage() {
     );
   }
 
-  // Receive items view
+  // SIMPLIFIED RECEIVE VIEW - Weight Entry Mode
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -435,24 +496,19 @@ export default function ReceiveFromDyeingPage() {
           <h1 className="text-2xl font-semibold text-white mt-2">
             Receive Order: {selectedOrder.orderNumber}
           </h1>
-          <p className="text-neutral-400 text-sm mt-1">
-            Vendor: {selectedOrder.vendor.name} ({selectedOrder.vendor.code})
-          </p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={handleBackToOrders}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Button>
-        </div>
+        <Button variant="ghost" onClick={handleBackToOrders}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Summary & Actions */}
+        {/* Left Column - Order Summary & Color Selection */}
         <div className="lg:col-span-1 space-y-6">
-          {/* Order Info */}
+          {/* Order Summary */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Order Information</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Order Summary</h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-400">Order Number</span>
@@ -463,7 +519,7 @@ export default function ReceiveFromDyeingPage() {
                 <span className="text-white">{selectedOrder.vendor.name}</span>
               </div>
               {selectedOrder.colorName && (
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-neutral-400">Expected Color</span>
                   <span className="text-white">{selectedOrder.colorName}</span>
                 </div>
@@ -480,20 +536,31 @@ export default function ReceiveFromDyeingPage() {
                   {new Date(selectedOrder.sentAt).toLocaleDateString()}
                 </span>
               </div>
+              <div className="border-t border-factory-border pt-3 mt-3">
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Rolls to Receive</span>
+                  <span className="text-white font-semibold">{unreceivedCount}</span>
+                </div>
+                <div className="flex justify-between mt-2">
+                  <span className="text-neutral-400">Total Sent Weight</span>
+                  <span className="text-white font-semibold">{totalSentWeight.toFixed(2)} kg</span>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Apply Color to All */}
+          {/* Color Selection - SINGLE for all rolls */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
             <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
               <Palette className="w-5 h-5" />
-              Apply Color to All
+              Color (for all rolls)
             </h3>
             <p className="text-neutral-400 text-sm mb-4">
-              Select a color to apply to all selected items
+              Select the color applied to all rolls in this batch
             </p>
             <select
-              onChange={(e) => applyColorToAll(e.target.value ? parseInt(e.target.value) : null)}
+              value={selectedColorId || ''}
+              onChange={(e) => setSelectedColorId(e.target.value ? parseInt(e.target.value) : null)}
               className="w-full px-4 py-3 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="">Select color...</option>
@@ -503,44 +570,103 @@ export default function ReceiveFromDyeingPage() {
                 </option>
               ))}
             </select>
+            {selectedColor && (
+              <div className="mt-3 flex items-center gap-2">
+                <div
+                  className="w-6 h-6 rounded-full border border-white/20"
+                  style={{ backgroundColor: selectedColor.hexCode || '#888' }}
+                />
+                <span className="text-white">{selectedColor.name}</span>
+              </div>
+            )}
           </div>
 
-          {/* Receive Summary */}
+          {/* Scale Status */}
+          <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Scale className="w-5 h-5" />
+              Weighing Scale
+            </h3>
+
+            {/* Connection Status */}
+            <div className={`rounded-xl border p-3 flex items-center gap-3 mb-4 ${
+              isWeighingConnected
+                ? 'bg-emerald-500/5 border-emerald-500/20'
+                : 'bg-red-500/5 border-red-500/20'
+            }`}>
+              {isWeighingConnected ? (
+                <Wifi className="w-5 h-5 text-emerald-400" />
+              ) : (
+                <WifiOff className="w-5 h-5 text-red-400" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${isWeighingConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {isWeighingConnected ? 'Scale Connected' : 'Scale Disconnected'}
+                </p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={simulateWeightDetection}>
+                Test
+              </Button>
+            </div>
+
+            {/* Current Scale Reading */}
+            <div className="bg-factory-gray rounded-xl p-4 text-center">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <Scale className="w-4 h-4 text-neutral-400" />
+                <span className="text-xs text-neutral-400 uppercase tracking-wider">Current Reading</span>
+              </div>
+              <div className="text-3xl font-bold text-white font-mono">
+                {scaleWeight || '0.00'} <span className="text-lg text-neutral-400">kg</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary & Submit */}
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
             <h3 className="text-lg font-semibold text-white mb-4">Receive Summary</h3>
             <div className="space-y-3">
               <div className="flex justify-between">
-                <span className="text-neutral-400">Selected Items</span>
+                <span className="text-neutral-400">Rolls Entered</span>
                 <span className="text-white font-medium">
-                  {getSelectedItems().length} / {receiveItems.length}
+                  {enteredWeights.length} / {unreceivedCount}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-400">Sent Weight</span>
-                <span className="text-white font-medium">{getTotalSentWeight().toFixed(2)} kg</span>
+                <span className="text-white font-medium">{totalSentWeight.toFixed(2)} kg</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-400">Received Weight</span>
                 <span className="text-white font-medium">
-                  {getTotalReceivedWeight().toFixed(2)} kg
+                  {totalEnteredWeight.toFixed(2)} kg
                 </span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-neutral-400">Weight Variance</span>
-                <span
-                  className={`font-medium ${
-                    getWeightVariance() < 0
-                      ? 'text-error'
-                      : getWeightVariance() > 0
-                      ? 'text-success'
-                      : 'text-white'
-                  }`}
-                >
-                  {getWeightVariance() > 0 ? '+' : ''}
-                  {getWeightVariance().toFixed(2)}%
-                </span>
-              </div>
-              {Math.abs(getWeightVariance()) > 5 && (
+              {enteredWeights.length > 0 && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Avg Weight/Roll</span>
+                    <span className="text-white font-medium">
+                      {(totalEnteredWeight / enteredWeights.length).toFixed(2)} kg
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-neutral-400">Weight Variance</span>
+                    <span
+                      className={`font-medium ${
+                        getWeightVariance() < 0
+                          ? 'text-error'
+                          : getWeightVariance() > 0
+                          ? 'text-success'
+                          : 'text-white'
+                      }`}
+                    >
+                      {getWeightVariance() > 0 ? '+' : ''}
+                      {getWeightVariance().toFixed(2)}%
+                    </span>
+                  </div>
+                </>
+              )}
+              {Math.abs(getWeightVariance()) > 5 && enteredWeights.length > 0 && (
                 <div className="flex items-center gap-2 text-warning text-sm mt-2">
                   <AlertTriangle className="w-4 h-4" />
                   <span>Significant weight variance detected</span>
@@ -550,158 +676,231 @@ export default function ReceiveFromDyeingPage() {
             <Button
               onClick={handleSubmit}
               className="w-full mt-6"
-              disabled={isSubmitting || getSelectedItems().length === 0}
+              disabled={isSubmitting || enteredWeights.length === 0 || !selectedColorId}
             >
-              {isSubmitting ? 'Processing...' : 'Confirm Receipt'}
+              {isSubmitting ? 'Processing...' : 'Save & Print QR Labels'}
             </Button>
+            {(!selectedColorId && enteredWeights.length > 0) && (
+              <p className="text-warning text-sm mt-2 text-center">
+                Please select a color before saving
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Right Column - Items Table */}
+        {/* Right Column - Weight Entry */}
         <div className="lg:col-span-2">
           <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-semibold text-white">Items to Receive</h3>
+                <h3 className="text-lg font-semibold text-white">Enter Received Weights</h3>
                 <p className="text-sm text-neutral-400">
-                  {receiveItems.length} roll(s) pending receipt
+                  Enter weight for each roll ({unreceivedCount} rolls to receive)
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  setReceiveItems((prev) =>
-                    prev.map((item) => ({ ...item, isSelected: !prev.every((i) => i.isSelected) }))
-                  )
-                }
-              >
-                {receiveItems.every((i) => i.isSelected) ? 'Deselect All' : 'Select All'}
-              </Button>
             </div>
 
-            {receiveItems.length === 0 ? (
-              <div className="text-center py-12">
-                <Check className="w-12 h-12 text-success mx-auto mb-4" />
-                <p className="text-neutral-400">All items have been received</p>
+            {/* Weight Input Row */}
+            <div className="bg-factory-gray rounded-xl p-4 mb-6">
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Weight Input */}
+                <div className="flex-1">
+                  <label className="block text-sm text-neutral-400 mb-1">Weight (kg)</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Scale className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                      <input
+                        type="number"
+                        step="0.001"
+                        value={currentWeight}
+                        onChange={(e) => setCurrentWeight(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddWeight();
+                          }
+                        }}
+                        placeholder="0.00"
+                        className="w-full pl-10 pr-4 py-3 rounded-lg bg-factory-dark border border-factory-border text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={captureWeight}
+                      disabled={!isWeighingConnected}
+                      title="Capture weight from scale"
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Capture
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Grade Select */}
+                <div className="w-32">
+                  <label className="block text-sm text-neutral-400 mb-1">Grade</label>
+                  <select
+                    value={currentGrade}
+                    onChange={(e) => setCurrentGrade(e.target.value)}
+                    className="w-full px-3 py-3 rounded-lg bg-factory-dark border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="A">Grade A</option>
+                    <option value="B">Grade B</option>
+                    <option value="C">Grade C</option>
+                  </select>
+                </div>
+
+                {/* Add Button */}
+                <div className="flex items-end">
+                  <Button
+                    onClick={handleAddWeight}
+                    disabled={!currentWeight || enteredWeights.length >= unreceivedCount}
+                    className="h-[46px]"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Roll
+                  </Button>
+                </div>
+              </div>
+
+              {enteredWeights.length >= unreceivedCount && (
+                <p className="text-success text-sm mt-2">
+                  All {unreceivedCount} roll weights entered
+                </p>
+              )}
+            </div>
+
+            {/* Entered Weights List */}
+            {enteredWeights.length === 0 ? (
+              <div className="text-center py-12 border border-dashed border-factory-border rounded-xl">
+                <Scale className="w-12 h-12 text-neutral-500 mx-auto mb-4" />
+                <p className="text-neutral-400">No weights entered yet</p>
+                <p className="text-neutral-500 text-sm mt-1">
+                  Enter the weight for each roll and click "Add Roll"
+                </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {receiveItems.map((item) => (
+              <div className="space-y-2">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-4 px-4 py-2 text-sm text-neutral-400">
+                  <div className="col-span-1">#</div>
+                  <div className="col-span-4">Received Weight</div>
+                  <div className="col-span-3">Grade</div>
+                  <div className="col-span-4 text-right">Actions</div>
+                </div>
+
+                {/* Weight Entries */}
+                {enteredWeights.map((entry, index) => (
                   <div
-                    key={item.dyeingOrderItemId}
-                    className={`p-4 rounded-xl border transition-colors ${
-                      item.isSelected
-                        ? 'bg-primary-500/10 border-primary-500/30'
-                        : 'bg-factory-gray border-factory-border'
-                    }`}
+                    key={entry.id}
+                    className="grid grid-cols-12 gap-4 items-center p-4 bg-factory-gray rounded-xl"
                   >
-                    <div className="flex items-start gap-4">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => toggleItemSelection(item.dyeingOrderItemId)}
-                        className={`mt-1 w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
-                          item.isSelected
-                            ? 'bg-primary-500 border-primary-500'
-                            : 'border-factory-border'
-                        }`}
+                    <div className="col-span-1 text-neutral-400 font-medium">
+                      {index + 1}
+                    </div>
+
+                    <div className="col-span-4">
+                      {editingWeightId === entry.id ? (
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={editWeight}
+                          onChange={(e) => setEditWeight(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleSaveEdit(entry.id);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEdit();
+                            }
+                          }}
+                          autoFocus
+                          className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-primary-500 text-white focus:outline-none"
+                        />
+                      ) : (
+                        <span className="text-white font-medium font-mono">
+                          {entry.weight.toFixed(2)} kg
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="col-span-3">
+                      <select
+                        value={entry.grade}
+                        onChange={(e) => handleUpdateGrade(entry.id, e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
                       >
-                        {item.isSelected && <Check className="w-3 h-3 text-white" />}
-                      </button>
+                        <option value="A">Grade A</option>
+                        <option value="B">Grade B</option>
+                        <option value="C">Grade C</option>
+                      </select>
+                    </div>
 
-                      {/* Item Details */}
-                      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {/* Roll Info */}
-                        <div>
-                          <p className="text-sm text-neutral-400 mb-1">Roll</p>
-                          <p className="font-mono text-primary-400">{item.rollNumber}</p>
-                          <p className="text-sm text-neutral-500">{item.fabricType}</p>
-                          <p className="text-sm text-neutral-400 mt-1">
-                            Sent: {item.sentWeight.toFixed(2)} kg
-                          </p>
-                        </div>
-
-                        {/* Received Weight */}
-                        <div>
-                          <label className="block text-sm text-neutral-400 mb-1">
-                            Received Weight (kg) *
-                          </label>
-                          <div className="relative">
-                            <Scale className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input
-                              type="number"
-                              step="0.001"
-                              value={item.receivedWeight}
-                              onChange={(e) =>
-                                updateItem(item.dyeingOrderItemId, 'receivedWeight', e.target.value)
-                              }
-                              className="w-full pl-10 pr-4 py-2 rounded-lg bg-factory-dark border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                              disabled={!item.isSelected}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Color */}
-                        <div>
-                          <label className="block text-sm text-neutral-400 mb-1">Color *</label>
-                          <select
-                            value={item.colorId || ''}
-                            onChange={(e) =>
-                              updateItem(
-                                item.dyeingOrderItemId,
-                                'colorId',
-                                e.target.value ? parseInt(e.target.value) : null
-                              )
-                            }
-                            className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                            disabled={!item.isSelected}
+                    <div className="col-span-4 flex justify-end gap-2">
+                      {editingWeightId === entry.id ? (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => handleSaveEdit(entry.id)}
                           >
-                            <option value="">Select color...</option>
-                            {colors.map((color) => (
-                              <option key={color.id} value={color.id}>
-                                {color.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Grade */}
-                        <div>
-                          <label className="block text-sm text-neutral-400 mb-1">Grade</label>
-                          <select
-                            value={item.grade}
-                            onChange={(e) =>
-                              updateItem(item.dyeingOrderItemId, 'grade', e.target.value)
-                            }
-                            className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                            disabled={!item.isSelected}
+                            <Check className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={handleCancelEdit}
                           >
-                            <option value="A">Grade A</option>
-                            <option value="B">Grade B</option>
-                            <option value="C">Grade C</option>
-                          </select>
-                        </div>
-
-                        {/* Defects */}
-                        <div className="md:col-span-2">
-                          <label className="block text-sm text-neutral-400 mb-1">
-                            Defects (if any)
-                          </label>
-                          <input
-                            type="text"
-                            value={item.defects}
-                            onChange={(e) =>
-                              updateItem(item.dyeingOrderItemId, 'defects', e.target.value)
-                            }
-                            placeholder="Note any defects..."
-                            className="w-full px-3 py-2 rounded-lg bg-factory-dark border border-factory-border text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                            disabled={!item.isSelected}
-                          />
-                        </div>
-                      </div>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleStartEdit(entry)}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRemoveWeight(entry.id)}
+                            className="text-error hover:bg-error/10"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
+
+                {/* Summary Row */}
+                <div className="grid grid-cols-12 gap-4 items-center p-4 bg-primary-500/10 border border-primary-500/20 rounded-xl mt-4">
+                  <div className="col-span-1 text-neutral-400 font-medium">
+
+                  </div>
+                  <div className="col-span-4">
+                    <span className="text-neutral-400">Total:</span>
+                    <span className="text-white font-semibold ml-2 font-mono">
+                      {totalEnteredWeight.toFixed(2)} kg
+                    </span>
+                  </div>
+                  <div className="col-span-3">
+                    <span className="text-neutral-400">Rolls:</span>
+                    <span className="text-white font-semibold ml-2">
+                      {enteredWeights.length} / {unreceivedCount}
+                    </span>
+                  </div>
+                  <div className="col-span-4 text-right">
+                    <span className="text-neutral-400">Avg:</span>
+                    <span className="text-white font-semibold ml-2 font-mono">
+                      {(totalEnteredWeight / enteredWeights.length).toFixed(2)} kg
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
           </div>

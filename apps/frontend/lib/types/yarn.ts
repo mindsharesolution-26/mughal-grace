@@ -102,6 +102,10 @@ export const COUNT_SYSTEMS: Record<CountSystem, {
   },
 };
 
+// Aliases for backward compatibility
+export const YARN_COUNT_SYSTEMS = COUNT_SYSTEMS;
+export type YarnCountSystem = CountSystem;
+
 // ============================================
 // YARN CATEGORIES
 // ============================================

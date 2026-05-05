@@ -6,11 +6,18 @@ import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { StatsCard } from '@/components/molecules/StatsCard';
 import { yarnVendorsApi, YarnVendor } from '@/lib/api/yarn-vendors';
+import { dyeingVendorsApi, DyeingVendorWithStats } from '@/lib/api/dyeing';
+import { suppliersApi, GeneralSupplier } from '@/lib/api/suppliers';
 import { formatPKR } from '@/lib/types/vendor';
 import { Loader2, Search } from 'lucide-react';
 
+type VendorType = 'YARN' | 'DYEING' | 'GENERAL';
+
 export default function VendorsPage() {
-  const [vendors, setVendors] = useState<YarnVendor[]>([]);
+  const [vendorType, setVendorType] = useState<VendorType>('YARN');
+  const [yarnVendors, setYarnVendors] = useState<YarnVendor[]>([]);
+  const [dyeingVendors, setDyeingVendors] = useState<DyeingVendorWithStats[]>([]);
+  const [generalSuppliers, setGeneralSuppliers] = useState<GeneralSupplier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -24,8 +31,14 @@ export default function VendorsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await yarnVendorsApi.getAll();
-      setVendors(data);
+      const [yarnData, dyeingData, generalData] = await Promise.all([
+        yarnVendorsApi.getAll(),
+        dyeingVendorsApi.getAll(),
+        suppliersApi.getAll(),
+      ]);
+      setYarnVendors(yarnData);
+      setDyeingVendors(dyeingData);
+      setGeneralSuppliers(generalData);
     } catch (err: any) {
       setError(err.message || 'Failed to load vendors');
     } finally {
@@ -33,9 +46,16 @@ export default function VendorsPage() {
     }
   };
 
+  // Get current vendors based on selected type
+  const currentVendors = vendorType === 'YARN'
+    ? yarnVendors
+    : vendorType === 'DYEING'
+      ? dyeingVendors
+      : generalSuppliers;
+
   // Filter vendors
   const filteredVendors = useMemo(() => {
-    return vendors.filter((vendor) => {
+    return currentVendors.filter((vendor) => {
       const matchesSearch =
         searchQuery === '' ||
         vendor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -50,44 +70,60 @@ export default function VendorsPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [vendors, searchQuery, statusFilter]);
+  }, [currentVendors, searchQuery, statusFilter]);
 
-  // Calculate stats
+  // Calculate stats based on selected vendor type
   const stats = useMemo(() => {
+    const vendors = currentVendors;
     const totalVendors = vendors.length;
     const activeVendors = vendors.filter((v) => v.isActive).length;
-    // For now, currentBalance would come from ledger aggregation
-    // We'll show credit limit stats instead
-    const totalCreditLimit = vendors.reduce((sum, v) => {
-      return sum + (v.creditLimit ? parseFloat(v.creditLimit) : 0);
-    }, 0);
-    const avgRating = vendors.filter(v => v.rating).length > 0
-      ? vendors.filter(v => v.rating).reduce((sum, v) => sum + (v.rating || 0), 0) / vendors.filter(v => v.rating).length
-      : 0;
 
-    return {
-      totalVendors,
-      activeVendors,
-      totalCreditLimit,
-      avgRating,
-    };
-  }, [vendors]);
+    if (vendorType === 'YARN') {
+      const yarnList = vendors as YarnVendor[];
+      const totalCreditLimit = yarnList.reduce((sum, v) => {
+        return sum + (v.creditLimit ? parseFloat(v.creditLimit) : 0);
+      }, 0);
 
-  // Render rating stars
-  const renderRating = (rating: number | null) => {
-    if (!rating) return <span className="text-neutral-500">-</span>;
-    return (
-      <div className="flex gap-0.5">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <span
-            key={star}
-            className={star <= rating ? 'text-warning' : 'text-neutral-600'}
-          >
-            ★
-          </span>
-        ))}
-      </div>
-    );
+      return {
+        totalVendors,
+        activeVendors,
+        totalCreditLimit,
+      };
+    } else if (vendorType === 'DYEING') {
+      const dyeingList = vendors as DyeingVendorWithStats[];
+      const totalActiveOrders = dyeingList.reduce((sum, v) => sum + (v.activeOrders || 0), 0);
+
+      return {
+        totalVendors,
+        activeVendors,
+        totalActiveOrders,
+      };
+    } else {
+      // GENERAL suppliers
+      const generalList = vendors as GeneralSupplier[];
+      const totalCreditLimit = generalList.reduce((sum, v) => {
+        return sum + (v.creditLimit ? parseFloat(v.creditLimit) : 0);
+      }, 0);
+
+      return {
+        totalVendors,
+        activeVendors,
+        totalCreditLimit,
+      };
+    }
+  }, [currentVendors, vendorType]);
+
+  // Get edit/view URLs based on vendor type
+  const getVendorUrl = (vendorId: number) => {
+    if (vendorType === 'YARN') return `/finance/vendors/${vendorId}`;
+    if (vendorType === 'DYEING') return `/dyeing/vendors/${vendorId}`;
+    return `/finance/suppliers/${vendorId}`;
+  };
+
+  const getEditUrl = (vendorId: number) => {
+    if (vendorType === 'YARN') return `/finance/vendors/${vendorId}/edit`;
+    if (vendorType === 'DYEING') return `/dyeing/vendors/${vendorId}/edit`;
+    return `/finance/suppliers/${vendorId}/edit`;
   };
 
   if (isLoading) {
@@ -112,7 +148,7 @@ export default function VendorsPage() {
           </div>
           <h1 className="text-2xl font-semibold text-white mt-2">Vendors</h1>
           <p className="text-neutral-400 mt-1">
-            Manage yarn vendor information, balances, and ledgers
+            Manage vendor information, balances, and ledgers
           </p>
         </div>
         <Link href="/finance/vendors/new">
@@ -129,32 +165,67 @@ export default function VendorsPage() {
         </div>
       )}
 
+      {/* Vendor Type Tabs */}
+      <div className="flex gap-2 border-b border-factory-border">
+        <button
+          onClick={() => setVendorType('YARN')}
+          className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            vendorType === 'YARN'
+              ? 'border-primary-500 text-primary-400'
+              : 'border-transparent text-neutral-400 hover:text-white'
+          }`}
+        >
+          Yarn Vendors ({yarnVendors.length})
+        </button>
+        <button
+          onClick={() => setVendorType('DYEING')}
+          className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            vendorType === 'DYEING'
+              ? 'border-primary-500 text-primary-400'
+              : 'border-transparent text-neutral-400 hover:text-white'
+          }`}
+        >
+          Dyeing Vendors ({dyeingVendors.length})
+        </button>
+        <button
+          onClick={() => setVendorType('GENERAL')}
+          className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            vendorType === 'GENERAL'
+              ? 'border-primary-500 text-primary-400'
+              : 'border-transparent text-neutral-400 hover:text-white'
+          }`}
+        >
+          General Suppliers ({generalSuppliers.length})
+        </button>
+      </div>
+
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatsCard
-          title="Total Vendors"
+          title={vendorType === 'GENERAL' ? 'Total Suppliers' : 'Total Vendors'}
           value={stats.totalVendors}
-          icon="🏪"
+          icon={vendorType === 'YARN' ? '🧵' : vendorType === 'DYEING' ? '🎨' : '🏭'}
         />
         <StatsCard
-          title="Active Vendors"
+          title={vendorType === 'GENERAL' ? 'Active Suppliers' : 'Active Vendors'}
           value={stats.activeVendors}
           change={`${stats.totalVendors - stats.activeVendors} inactive`}
           changeType="neutral"
           icon="✓"
         />
-        <StatsCard
-          title="Total Credit Limit"
-          value={formatPKR(stats.totalCreditLimit)}
-          icon="💳"
-        />
-        <StatsCard
-          title="Avg Rating"
-          value={stats.avgRating.toFixed(1)}
-          change={stats.avgRating >= 4 ? 'Excellent' : stats.avgRating >= 3 ? 'Good' : 'Needs improvement'}
-          changeType={stats.avgRating >= 4 ? 'positive' : stats.avgRating >= 3 ? 'neutral' : 'negative'}
-          icon="⭐"
-        />
+        {vendorType === 'YARN' || vendorType === 'GENERAL' ? (
+          <StatsCard
+            title="Total Credit Limit"
+            value={formatPKR(stats.totalCreditLimit || 0)}
+            icon="💳"
+          />
+        ) : (
+          <StatsCard
+            title="Active Orders"
+            value={stats.totalActiveOrders || 0}
+            icon="📦"
+          />
+        )}
       </div>
 
       {/* Search and Filters */}
@@ -198,15 +269,34 @@ export default function VendorsPage() {
                 <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
                   City
                 </th>
-                <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
-                  Credit Limit
-                </th>
-                <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
-                  Payment Terms
-                </th>
-                <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
-                  Rating
-                </th>
+                {vendorType === 'YARN' ? (
+                  <>
+                    <th className="text-right px-6 py-4 text-sm font-medium text-neutral-400">
+                      Credit Limit
+                    </th>
+                    <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
+                      Payment Terms
+                    </th>
+                  </>
+                ) : vendorType === 'DYEING' ? (
+                  <>
+                    <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
+                      Active Orders
+                    </th>
+                    <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
+                      Completed
+                    </th>
+                  </>
+                ) : (
+                  <>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-neutral-400">
+                      Type
+                    </th>
+                    <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
+                      Payment Terms
+                    </th>
+                  </>
+                )}
                 <th className="text-center px-6 py-4 text-sm font-medium text-neutral-400">
                   Status
                 </th>
@@ -217,14 +307,19 @@ export default function VendorsPage() {
             </thead>
             <tbody className="divide-y divide-factory-border">
               {filteredVendors.map((vendor) => {
-                const creditLimit = vendor.creditLimit ? parseFloat(vendor.creditLimit) : 0;
+                const isYarn = vendorType === 'YARN';
+                const isDyeing = vendorType === 'DYEING';
+                const isGeneral = vendorType === 'GENERAL';
+                const yarnVendor = isYarn ? vendor as YarnVendor : null;
+                const dyeingVendor = isDyeing ? vendor as DyeingVendorWithStats : null;
+                const generalSupplier = isGeneral ? vendor as GeneralSupplier : null;
 
                 return (
                   <tr key={vendor.id} className="hover:bg-factory-gray transition-colors">
                     <td className="px-6 py-4">
                       <div>
                         <Link
-                          href={`/finance/vendors/${vendor.id}`}
+                          href={getVendorUrl(vendor.id)}
                           className="text-white font-medium hover:text-primary-400"
                         >
                           {vendor.name}
@@ -243,17 +338,36 @@ export default function VendorsPage() {
                     <td className="px-6 py-4 text-neutral-300">
                       {vendor.city || '-'}
                     </td>
-                    <td className="px-6 py-4 text-right text-neutral-300">
-                      {creditLimit > 0 ? formatPKR(creditLimit) : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-center text-neutral-300">
-                      {vendor.paymentTerms} days
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex justify-center">
-                        {renderRating(vendor.rating)}
-                      </div>
-                    </td>
+                    {isYarn && yarnVendor ? (
+                      <>
+                        <td className="px-6 py-4 text-right text-neutral-300">
+                          {yarnVendor.creditLimit
+                            ? formatPKR(parseFloat(yarnVendor.creditLimit))
+                            : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-center text-neutral-300">
+                          {yarnVendor.paymentTerms} days
+                        </td>
+                      </>
+                    ) : isDyeing && dyeingVendor ? (
+                      <>
+                        <td className="px-6 py-4 text-center text-neutral-300">
+                          {dyeingVendor.activeOrders || 0}
+                        </td>
+                        <td className="px-6 py-4 text-center text-neutral-300">
+                          {dyeingVendor.completedOrders || 0}
+                        </td>
+                      </>
+                    ) : isGeneral && generalSupplier ? (
+                      <>
+                        <td className="px-6 py-4 text-neutral-300">
+                          {generalSupplier.supplierType || '-'}
+                        </td>
+                        <td className="px-6 py-4 text-center text-neutral-300">
+                          {generalSupplier.paymentTerms} days
+                        </td>
+                      </>
+                    ) : null}
                     <td className="px-6 py-4">
                       <div className="flex justify-center">
                         <span
@@ -269,12 +383,12 @@ export default function VendorsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2">
-                        <Link href={`/finance/vendors/${vendor.id}`}>
+                        <Link href={getVendorUrl(vendor.id)}>
                           <Button variant="ghost" size="sm">
                             View
                           </Button>
                         </Link>
-                        <Link href={`/finance/vendors/${vendor.id}/edit`}>
+                        <Link href={getEditUrl(vendor.id)}>
                           <Button variant="secondary" size="sm">
                             Edit
                           </Button>
@@ -289,9 +403,13 @@ export default function VendorsPage() {
 
           {filteredVendors.length === 0 && !isLoading && (
             <div className="text-center py-12">
-              <p className="text-neutral-400">No vendors found.</p>
+              <p className="text-neutral-400">
+                No {vendorType === 'GENERAL' ? 'general suppliers' : `${vendorType.toLowerCase()} vendors`} found.
+              </p>
               <Link href="/finance/vendors/new">
-                <Button className="mt-4">Add Your First Vendor</Button>
+                <Button className="mt-4">
+                  Add Your First {vendorType === 'GENERAL' ? 'Supplier' : 'Vendor'}
+                </Button>
               </Link>
             </div>
           )}
@@ -300,24 +418,30 @@ export default function VendorsPage() {
 
       {/* Quick Tips */}
       <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
-        <h3 className="text-lg font-semibold text-white mb-3">Vendor Management Tips</h3>
+        <h3 className="text-lg font-semibold text-white mb-3">
+          {vendorType === 'GENERAL' ? 'Supplier' : 'Vendor'} Management Tips
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="flex items-start gap-3">
             <span className="text-lg">💡</span>
             <p className="text-neutral-400">
-              Click on a vendor name to view their complete ledger, payment history, and yarn purchases.
+              Click on a {vendorType === 'GENERAL' ? 'supplier' : 'vendor'} name to view their complete details, ledger, and payment history.
             </p>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-lg">⚠️</span>
             <p className="text-neutral-400">
-              Set credit limits to prevent exceeding payment capacity with any vendor.
+              {vendorType === 'YARN'
+                ? 'Set credit limits to prevent exceeding payment capacity with any vendor.'
+                : vendorType === 'DYEING'
+                  ? 'Track turnaround time and quality ratings to evaluate vendor performance.'
+                  : 'Categorize suppliers by type (Needles, Spare Parts, Chemicals, etc.) for better organization.'}
             </p>
           </div>
           <div className="flex items-start gap-3">
             <span className="text-lg">📊</span>
             <p className="text-neutral-400">
-              Use ratings to track vendor reliability and quality performance.
+              Track payment terms and credit limits to manage {vendorType === 'GENERAL' ? 'supplier' : 'vendor'} relationships effectively.
             </p>
           </div>
         </div>

@@ -38,69 +38,84 @@ dyeingRouter.get('/vendors', requirePermission('dyeing:read'), async (req: Reque
       },
     });
 
-    // Calculate stats for each vendor
-    const vendorsWithStats = await Promise.all(
-      vendors.map(async (vendor) => {
-        const activeOrders = await req.prisma!.dyeingOrder.count({
-          where: {
-            vendorId: vendor.id,
-            status: { in: ['SENT', 'IN_PROCESS', 'READY'] },
-          },
-        });
+    // Get all vendor IDs
+    const vendorIds = vendors.map(v => v.id);
 
-        const completedOrders = await req.prisma!.dyeingOrder.findMany({
-          where: {
-            vendorId: vendor.id,
-            status: 'COMPLETED',
-            receivedAt: { not: null },
-            sentAt: { not: null },
-          },
-          select: {
-            sentAt: true,
-            receivedAt: true,
-            sentWeight: true,
-            receivedWeight: true,
-          },
-        });
+    // Fetch all orders for these vendors in a single query
+    const allOrders = await req.prisma!.dyeingOrder.findMany({
+      where: {
+        vendorId: { in: vendorIds },
+      },
+      select: {
+        vendorId: true,
+        status: true,
+        sentAt: true,
+        receivedAt: true,
+        sentWeight: true,
+        receivedWeight: true,
+      },
+    });
 
-        // Calculate average turnaround days
-        let avgTurnaround = 0;
-        if (completedOrders.length > 0) {
-          const totalDays = completedOrders.reduce((sum, order) => {
-            const days = Math.ceil(
-              (new Date(order.receivedAt!).getTime() - new Date(order.sentAt).getTime()) /
-                (1000 * 60 * 60 * 24)
-            );
-            return sum + days;
-          }, 0);
-          avgTurnaround = Math.round(totalDays / completedOrders.length);
+    // Group and count in JavaScript
+    const activeCountMap = new Map<number, number>();
+    const completedByVendor = new Map<number, typeof allOrders>();
+
+    for (const order of allOrders) {
+      // Count active orders
+      if (['SENT', 'IN_PROCESS', 'READY'].includes(order.status)) {
+        activeCountMap.set(order.vendorId, (activeCountMap.get(order.vendorId) || 0) + 1);
+      }
+      // Group completed orders with both dates
+      if (order.status === 'COMPLETED' && order.sentAt && order.receivedAt) {
+        if (!completedByVendor.has(order.vendorId)) {
+          completedByVendor.set(order.vendorId, []);
         }
+        completedByVendor.get(order.vendorId)!.push(order);
+      }
+    }
 
-        // Calculate average weight variance
-        let avgWeightVariance = 0;
-        const ordersWithWeightData = completedOrders.filter(
-          (o) => o.receivedWeight !== null
-        );
-        if (ordersWithWeightData.length > 0) {
-          const totalVariance = ordersWithWeightData.reduce((sum, order) => {
-            const variance =
-              ((Number(order.receivedWeight) - Number(order.sentWeight)) /
-                Number(order.sentWeight)) *
-              100;
-            return sum + variance;
-          }, 0);
-          avgWeightVariance = Number((totalVariance / ordersWithWeightData.length).toFixed(2));
-        }
+    // Calculate stats for each vendor (no additional queries)
+    const vendorsWithStats = vendors.map((vendor) => {
+      const vendorCompletedOrders = completedByVendor.get(vendor.id) || [];
+      const activeOrders = activeCountMap.get(vendor.id) || 0;
 
-        return {
-          ...vendor,
-          activeOrders,
-          completedOrders: completedOrders.length,
-          avgTurnaround,
-          avgWeightVariance,
-        };
-      })
-    );
+      // Calculate average turnaround days
+      let avgTurnaround = 0;
+      if (vendorCompletedOrders.length > 0) {
+        const totalDays = vendorCompletedOrders.reduce((sum, order) => {
+          const days = Math.ceil(
+            (new Date(order.receivedAt!).getTime() - new Date(order.sentAt!).getTime()) /
+              (1000 * 60 * 60 * 24)
+          );
+          return sum + days;
+        }, 0);
+        avgTurnaround = Math.round(totalDays / vendorCompletedOrders.length);
+      }
+
+      // Calculate average weight variance
+      let avgWeightVariance = 0;
+      const ordersWithWeightData = vendorCompletedOrders.filter(
+        (o) => o.receivedWeight !== null
+      );
+      if (ordersWithWeightData.length > 0) {
+        const totalVariance = ordersWithWeightData.reduce((sum, order) => {
+          const variance =
+            ((Number(order.receivedWeight) - Number(order.sentWeight)) /
+              Number(order.sentWeight)) *
+            100;
+          return sum + variance;
+        }, 0);
+        avgWeightVariance = Number((totalVariance / ordersWithWeightData.length).toFixed(2));
+      }
+
+      return {
+        ...vendor,
+        activeOrders,
+        completedOrders: vendorCompletedOrders.length,
+        avgTurnaround,
+        avgWeightVariance,
+      };
+    });
 
     res.json(vendorsWithStats);
   } catch (error) {
@@ -108,7 +123,7 @@ dyeingRouter.get('/vendors', requirePermission('dyeing:read'), async (req: Reque
   }
 });
 
-// GET /dyeing/vendors/lookup - Get vendors for dropdown
+// GET /dyeing/vendors/lookup - Get dyeing vendors for dropdown
 dyeingRouter.get('/vendors/lookup', requirePermission('dyeing:read'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const vendors = await req.prisma!.dyeingVendor.findMany({
@@ -503,7 +518,37 @@ dyeingRouter.post('/orders', requirePermission('dyeing:write'), async (req: Requ
         })),
       });
 
+      // Auto-create DyeingInvoice for finance tracking
+      const invoiceYear = new Date().getFullYear();
+      const lastInvoice = await tx.dyeingInvoice.findFirst({
+        where: {
+          invoiceNumber: { startsWith: `DYE-INV-${invoiceYear}` },
+        },
+        orderBy: { invoiceNumber: 'desc' },
+      });
+
+      let invoiceSequence = 1;
+      if (lastInvoice) {
+        const lastNum = parseInt(lastInvoice.invoiceNumber.split('-').pop() || '0');
+        invoiceSequence = lastNum + 1;
+      }
+
+      const invoiceNumber = `DYE-INV-${invoiceYear}-${String(invoiceSequence).padStart(4, '0')}`;
+
+      await tx.dyeingInvoice.create({
+        data: {
+          invoiceNumber,
+          dyeingOrderId: newOrder.id,
+          vendorId: data.vendorId,
+          totalGreyWeight: totalWeight,
+          status: 'PENDING',
+          paymentStatus: 'UNPAID',
+        },
+      });
+
       return newOrder;
+    }, {
+      timeout: 30000, // 30 seconds for dyeing order creation
     });
 
     res.status(201).json(order);
@@ -672,7 +717,20 @@ dyeingRouter.post('/orders/:id/receive', requirePermission('dyeing:write'), asyn
         },
       });
 
+      // Update DyeingInvoice to READY status (for Finance to enter pricing)
+      if (allReceived === 0) {
+        await tx.dyeingInvoice.updateMany({
+          where: { dyeingOrderId: orderId },
+          data: {
+            status: 'READY',
+            totalReceivedWeight: receivedWeight,
+          },
+        });
+      }
+
       return updated;
+    }, {
+      timeout: 30000, // 30 seconds for dyeing order receive
     });
 
     res.json(updatedOrder);
@@ -1265,6 +1323,8 @@ dyeingRouter.put('/stock/bulk-move-to-finished', requirePermission('dyeing:write
           notes: 'Bulk moved to finished stock',
         })),
       });
+    }, {
+      timeout: 15000, // 15 seconds for bulk status update
     });
 
     res.json({

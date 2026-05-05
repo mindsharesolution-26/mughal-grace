@@ -86,6 +86,8 @@ const navigation: NavItem[] = [
     icon: Warehouse,
     children: [
       { label: 'Overview', href: '/stock', icon: Warehouse },
+      { label: 'Fabric Stock', href: '/fabric-stock', icon: Shirt },
+      { label: 'Finished Stock', href: '/finished-stock', icon: Package },
       { label: 'Stock In', href: '/stock/in', icon: ArrowDownToLine },
       { label: 'Stock Out', href: '/stock/out', icon: ArrowUpFromLine },
       { label: 'Items', href: '/inventory/items', icon: Boxes },
@@ -125,6 +127,7 @@ const navigation: NavItem[] = [
           { label: 'Overview', href: '/dyeing', icon: Palette },
           { label: 'Send for Dyeing', href: '/dyeing/send', icon: ArrowUpFromLine },
           { label: 'Receive from Dyeing', href: '/dyeing/receive', icon: ArrowDownToLine },
+          { label: 'Dyed Stock', href: '/dyeing/stock', icon: Boxes },
         ],
       },
     ],
@@ -165,6 +168,7 @@ const navigation: NavItem[] = [
       { label: 'Overview', href: '/finance', icon: CreditCard },
       { label: 'Customers', href: '/finance/customers', icon: Users },
       { label: 'Vendors', href: '/finance/vendors', icon: Truck },
+      { label: 'Dyeing Invoices', href: '/finance/dyeing-invoices', icon: FileSpreadsheet },
       {
         label: 'Accounts',
         icon: Receipt,

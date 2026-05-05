@@ -122,15 +122,27 @@ function generatePrintHTML(data: RollLabelData): string {
     ${data.machineNumber ? `<div class="machine">M: ${data.machineNumber}</div>` : ''}
   </div>
   <script>
-    QRCode.toCanvas(document.getElementById('qr-code'), '${data.qrCode}', {
-      width: 90,
-      margin: 0,
-      errorCorrectionLevel: 'M'
-    }, function(error) {
-      if (!error) {
-        setTimeout(function() { window.print(); }, 300);
+    function tryRenderQR() {
+      if (typeof QRCode === 'undefined') {
+        // QRCode not loaded yet, retry after 100ms
+        setTimeout(tryRenderQR, 100);
+        return;
       }
-    });
+      QRCode.toCanvas(document.getElementById('qr-code'), '${data.qrCode}', {
+        width: 90,
+        margin: 0,
+        errorCorrectionLevel: 'M'
+      }, function(error) {
+        if (!error) {
+          setTimeout(function() { window.print(); }, 300);
+        } else {
+          // If QR fails, still print without QR
+          setTimeout(function() { window.print(); }, 300);
+        }
+      });
+    }
+    // Start trying to render after a short delay to let script load
+    setTimeout(tryRenderQR, 200);
     window.onafterprint = function() { window.close(); };
   </script>
 </body>

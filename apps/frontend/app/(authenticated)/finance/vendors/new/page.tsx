@@ -10,6 +10,18 @@ import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
 import { suggestVendorCode } from '@/lib/types/vendor';
+import { yarnVendorsApi } from '@/lib/api/yarn-vendors';
+import { dyeingVendorsApi } from '@/lib/api/dyeing';
+import { suppliersApi, SUPPLIER_TYPES } from '@/lib/api/suppliers';
+
+// Vendor types
+const VENDOR_TYPES = [
+  { value: 'YARN', label: 'Yarn Vendor', description: 'Suppliers of yarn and raw materials' },
+  { value: 'DYEING', label: 'Dyeing Vendor', description: 'Dyeing and finishing service providers' },
+  { value: 'GENERAL', label: 'General Supplier', description: 'Other suppliers (needles, spare parts, chemicals, etc.)' },
+] as const;
+
+type VendorType = typeof VENDOR_TYPES[number]['value'];
 
 // Mock existing codes
 const mockExistingCodes = ['VND-001', 'VND-002', 'VND-003', 'VND-004', 'VND-005'];
@@ -18,6 +30,7 @@ const mockExistingCodes = ['VND-001', 'VND-002', 'VND-003', 'VND-004', 'VND-005'
 const vendorSchema = z.object({
   code: z.string().min(3, 'Code must be at least 3 characters'),
   name: z.string().min(2, 'Name is required'),
+  supplierType: z.string().optional(),
   contactPerson: z.string().min(2, 'Contact person is required'),
   phone: z.string().min(10, 'Valid phone number required'),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
@@ -27,7 +40,6 @@ const vendorSchema = z.object({
   creditLimit: z.coerce.number().min(0, 'Credit limit must be positive'),
   paymentTerms: z.coerce.number().min(1, 'Payment terms required'),
   openingBalance: z.coerce.number().optional(),
-  rating: z.coerce.number().min(1).max(5),
   isActive: z.boolean(),
   notes: z.string().optional(),
 });
@@ -38,6 +50,7 @@ export default function NewVendorPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [vendorType, setVendorType] = useState<VendorType>('YARN');
 
   const {
     register,
@@ -50,6 +63,7 @@ export default function NewVendorPage() {
     defaultValues: {
       code: '',
       name: '',
+      supplierType: '',
       contactPerson: '',
       phone: '',
       email: '',
@@ -59,14 +73,12 @@ export default function NewVendorPage() {
       creditLimit: 100000,
       paymentTerms: 30,
       openingBalance: 0,
-      rating: 3,
       isActive: true,
       notes: '',
     },
   });
 
   const watchedName = watch('name');
-  const watchedRating = watch('rating');
 
   // Suggest code when name changes
   const suggestedCode = useMemo(() => {
@@ -79,12 +91,54 @@ export default function NewVendorPage() {
   const onSubmit = async (data: VendorForm) => {
     setIsLoading(true);
     try {
-      // TODO: API call will go here
+      if (vendorType === 'YARN') {
+        await yarnVendorsApi.create({
+          code: data.code,
+          name: data.name,
+          contactPerson: data.contactPerson || undefined,
+          phone: data.phone || undefined,
+          email: data.email || undefined,
+          address: data.address || undefined,
+          city: data.city || undefined,
+          creditLimit: data.creditLimit || undefined,
+          paymentTerms: data.paymentTerms || undefined,
+          notes: data.notes || undefined,
+          isActive: data.isActive,
+        });
+      } else if (vendorType === 'DYEING') {
+        await dyeingVendorsApi.create({
+          code: data.code,
+          name: data.name,
+          contactPerson: data.contactPerson || undefined,
+          phone: data.phone || undefined,
+          email: data.email || undefined,
+          address: data.address || undefined,
+          city: data.city || undefined,
+          paymentTerms: data.paymentTerms ? `${data.paymentTerms} Days` : undefined,
+        });
+      } else {
+        // General supplier
+        await suppliersApi.create({
+          name: data.name,
+          supplierType: data.supplierType || undefined,
+          contactPerson: data.contactPerson || undefined,
+          phone: data.phone || undefined,
+          email: data.email || undefined,
+          address: data.address || undefined,
+          city: data.city || undefined,
+          creditLimit: data.creditLimit || undefined,
+          paymentTerms: data.paymentTerms || undefined,
+          notes: data.notes || undefined,
+          isActive: data.isActive,
+        });
+      }
 
-      showToast('success', `Vendor "${data.name}" created successfully!`);
+      const typeLabel = vendorType === 'YARN' ? 'Yarn vendor' : vendorType === 'DYEING' ? 'Dyeing vendor' : 'General supplier';
+      showToast('success', `${typeLabel} "${data.name}" created successfully!`);
       router.push('/finance/vendors');
-    } catch (error) {
-      showToast('error', 'Failed to create vendor');
+    } catch (error: any) {
+      const message = error.response?.data?.error || 'Failed to create vendor';
+      showToast('error', message);
     } finally {
       setIsLoading(false);
     }
@@ -117,6 +171,65 @@ export default function NewVendorPage() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Vendor Type Selection */}
+        <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Vendor Type</h2>
+          <p className="text-sm text-neutral-400 mb-4">
+            Select the type of vendor you want to create
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {VENDOR_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                onClick={() => setVendorType(type.value)}
+                className={`p-4 rounded-xl border text-left transition-all ${
+                  vendorType === type.value
+                    ? 'bg-primary-500/10 border-primary-500'
+                    : 'bg-factory-gray/30 border-factory-border hover:border-neutral-600'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-white">{type.label}</p>
+                    <p className="text-sm text-neutral-400 mt-1">{type.description}</p>
+                  </div>
+                  {vendorType === type.value && (
+                    <div className="w-6 h-6 bg-primary-500 rounded-full flex items-center justify-center flex-shrink-0 ml-2">
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Supplier Type dropdown for GENERAL vendors */}
+          {vendorType === 'GENERAL' && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-neutral-300 mb-1.5">
+                Supplier Category
+              </label>
+              <select
+                {...register('supplierType')}
+                className="w-full px-4 py-2.5 rounded-xl bg-factory-gray border border-factory-border text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select category...</option>
+                {SUPPLIER_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              <p className="text-sm text-neutral-500 mt-1">
+                Categorize this supplier for better organization and reporting
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Basic Information */}
         <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Basic Information</h2>
@@ -245,60 +358,30 @@ export default function NewVendorPage() {
           </div>
         </div>
 
-        {/* Rating & Status */}
+        {/* Status & Notes */}
         <div className="bg-factory-dark rounded-2xl border border-factory-border p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Rating & Status</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Status & Notes</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Rating */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-300 mb-3">
-                Vendor Rating
-              </label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setValue('rating', star)}
-                    className={`text-3xl transition-colors ${
-                      star <= watchedRating ? 'text-warning' : 'text-neutral-600 hover:text-neutral-400'
-                    }`}
-                  >
-                    ★
-                  </button>
-                ))}
-              </div>
-              <p className="text-sm text-neutral-500 mt-2">
-                {watchedRating === 1 && 'Poor'}
-                {watchedRating === 2 && 'Below Average'}
-                {watchedRating === 3 && 'Average'}
-                {watchedRating === 4 && 'Good'}
-                {watchedRating === 5 && 'Excellent'}
-              </p>
-            </div>
-
-            {/* Active Status */}
-            <div>
-              <label className="block text-sm font-medium text-neutral-300 mb-3">
-                Status
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="w-5 h-5 rounded border-factory-border bg-factory-gray text-primary-500 focus:ring-primary-500"
-                  {...register('isActive')}
-                />
-                <span className="text-white">Vendor is Active</span>
-              </label>
-              <p className="text-sm text-neutral-500 mt-2">
-                Inactive vendors won&apos;t appear in selection lists
-              </p>
-            </div>
+          {/* Active Status */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-neutral-300 mb-3">
+              Status
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-5 h-5 rounded border-factory-border bg-factory-gray text-primary-500 focus:ring-primary-500"
+                {...register('isActive')}
+              />
+              <span className="text-white">Vendor is Active</span>
+            </label>
+            <p className="text-sm text-neutral-500 mt-2">
+              Inactive vendors won&apos;t appear in selection lists
+            </p>
           </div>
 
           {/* Notes */}
-          <div className="mt-6">
+          <div>
             <label className="block text-sm font-medium text-neutral-300 mb-1.5">
               Notes
             </label>

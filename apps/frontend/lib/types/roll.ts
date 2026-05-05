@@ -234,3 +234,30 @@ export interface RollLabelData {
   date: string;
   machineNumber?: string;
 }
+
+// Batch (LOT) roll creation types
+export interface BatchRollEntry {
+  greyWeight: number;
+  grade?: string;
+  defectNotes?: string;
+}
+
+export interface CreateBatchRollsData {
+  fabricId: number;
+  rolls: BatchRollEntry[];
+}
+
+export interface CreateBatchRollsResponse {
+  data: Roll[];
+  summary: {
+    totalRolls: number;
+    totalWeight: number;
+    averageWeight: number;
+    fabric: {
+      id: number;
+      code: string;
+      name: string;
+    };
+  };
+  message: string;
+}

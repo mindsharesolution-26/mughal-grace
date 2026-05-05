@@ -9,42 +9,21 @@ import { z } from 'zod';
 import { Button } from '@/components/atoms/Button';
 import { Input } from '@/components/atoms/Input';
 import { useToast } from '@/contexts/ToastContext';
-import { YarnVendor } from '@/lib/types/vendor';
-
-// Mock vendor data
-const mockVendor: YarnVendor = {
-  id: '1',
-  code: 'VND-001',
-  name: 'Textile Hub',
-  contactPerson: 'Ahmad Khan',
-  phone: '0300-1234567',
-  email: 'ahmad@textilehub.pk',
-  address: '123 Industrial Area, Block B',
-  city: 'Faisalabad',
-  country: 'Pakistan',
-  creditLimit: 500000,
-  paymentTerms: 30,
-  currentBalance: 125000,
-  rating: 4,
-  isActive: true,
-  notes: 'Reliable supplier for cotton yarns',
-  createdAt: '2024-01-01',
-  updatedAt: '2024-01-20',
-};
+import { yarnVendorsApi, YarnVendor } from '@/lib/api/yarn-vendors';
+import { Loader2 } from 'lucide-react';
 
 // Form validation schema
 const vendorSchema = z.object({
   code: z.string().min(3, 'Code must be at least 3 characters'),
   name: z.string().min(2, 'Name is required'),
-  contactPerson: z.string().min(2, 'Contact person is required'),
-  phone: z.string().min(10, 'Valid phone number required'),
+  contactPerson: z.string().optional().or(z.literal('')),
+  phone: z.string().optional().or(z.literal('')),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   address: z.string().optional(),
   city: z.string().optional(),
-  country: z.string().optional(),
-  creditLimit: z.coerce.number().min(0, 'Credit limit must be positive'),
+  creditLimit: z.coerce.number().min(0, 'Credit limit must be positive').optional(),
   paymentTerms: z.coerce.number().min(1, 'Payment terms required'),
-  rating: z.coerce.number().min(1).max(5),
+  rating: z.coerce.number().min(1).max(5).optional(),
   isActive: z.boolean(),
   notes: z.string().optional(),
 });
@@ -55,13 +34,12 @@ export default function EditVendorPage() {
   const params = useParams();
   const router = useRouter();
   const { showToast } = useToast();
-  const vendorId = params.id as string;
+  const vendorId = Number(params.id);
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [vendor, setVendor] = useState<YarnVendor | null>(null);
+  const [isLoadingVendor, setIsLoadingVendor] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-
-  // In real app, fetch vendor data
-  const vendor = mockVendor;
 
   const {
     register,
@@ -73,23 +51,58 @@ export default function EditVendorPage() {
   } = useForm<VendorForm>({
     resolver: zodResolver(vendorSchema),
     defaultValues: {
-      code: vendor.code,
-      name: vendor.name,
-      contactPerson: vendor.contactPerson,
-      phone: vendor.phone,
-      email: vendor.email || '',
-      address: vendor.address || '',
-      city: vendor.city || '',
-      country: vendor.country || 'Pakistan',
-      creditLimit: vendor.creditLimit,
-      paymentTerms: vendor.paymentTerms,
-      rating: vendor.rating,
-      isActive: vendor.isActive,
-      notes: vendor.notes || '',
+      code: '',
+      name: '',
+      contactPerson: '',
+      phone: '',
+      email: '',
+      address: '',
+      city: '',
+      creditLimit: 0,
+      paymentTerms: 30,
+      rating: 3,
+      isActive: true,
+      notes: '',
     },
   });
 
-  const watchedRating = watch('rating');
+  const watchedRating = watch('rating') || 3;
+
+  // Fetch vendor data
+  useEffect(() => {
+    const loadVendor = async () => {
+      setIsLoadingVendor(true);
+      try {
+        const data = await yarnVendorsApi.getById(vendorId);
+        setVendor(data);
+
+        // Reset form with vendor data
+        reset({
+          code: data.code,
+          name: data.name,
+          contactPerson: data.contactPerson || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          address: data.address || '',
+          city: data.city || '',
+          creditLimit: data.creditLimit ? parseFloat(data.creditLimit) : 0,
+          paymentTerms: data.paymentTerms,
+          rating: data.rating || 3,
+          isActive: data.isActive,
+          notes: data.notes || '',
+        });
+      } catch (error: any) {
+        showToast('error', error.response?.data?.error || 'Failed to load vendor');
+        router.push('/finance/vendors');
+      } finally {
+        setIsLoadingVendor(false);
+      }
+    };
+
+    if (vendorId) {
+      loadVendor();
+    }
+  }, [vendorId, reset, showToast, router]);
 
   // Track changes
   useEffect(() => {
@@ -97,18 +110,50 @@ export default function EditVendorPage() {
   }, [isDirty]);
 
   const onSubmit = async (data: VendorForm) => {
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
-      // TODO: API call will go here
+      await yarnVendorsApi.update(vendorId, {
+        code: data.code,
+        name: data.name,
+        contactPerson: data.contactPerson || undefined,
+        phone: data.phone || undefined,
+        email: data.email || undefined,
+        address: data.address || undefined,
+        city: data.city || undefined,
+        creditLimit: data.creditLimit || undefined,
+        paymentTerms: data.paymentTerms,
+        rating: data.rating || undefined,
+        isActive: data.isActive,
+        notes: data.notes || undefined,
+      });
 
       showToast('success', `Vendor "${data.name}" updated successfully!`);
       router.push(`/finance/vendors/${vendorId}`);
-    } catch (error) {
-      showToast('error', 'Failed to update vendor');
+    } catch (error: any) {
+      showToast('error', error.response?.data?.error || 'Failed to update vendor');
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
+
+  if (isLoadingVendor) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 text-primary-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!vendor) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-neutral-400">Vendor not found</p>
+        <Link href="/finance/vendors">
+          <Button className="mt-4">Back to Vendors</Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -169,7 +214,7 @@ export default function EditVendorPage() {
 
             {/* Contact Person */}
             <Input
-              label="Contact Person *"
+              label="Contact Person"
               placeholder="Primary contact name"
               error={errors.contactPerson?.message}
               {...register('contactPerson')}
@@ -177,7 +222,7 @@ export default function EditVendorPage() {
 
             {/* Phone */}
             <Input
-              label="Phone Number *"
+              label="Phone Number"
               placeholder="e.g., 0300-1234567"
               error={errors.phone?.message}
               {...register('phone')}
@@ -212,12 +257,6 @@ export default function EditVendorPage() {
               placeholder="City"
               {...register('city')}
             />
-
-            <Input
-              label="Country"
-              placeholder="Country"
-              {...register('country')}
-            />
           </div>
         </div>
 
@@ -227,7 +266,7 @@ export default function EditVendorPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              label="Credit Limit (PKR) *"
+              label="Credit Limit (PKR)"
               type="number"
               placeholder="0"
               error={errors.creditLimit?.message}
@@ -241,18 +280,6 @@ export default function EditVendorPage() {
               error={errors.paymentTerms?.message}
               {...register('paymentTerms')}
             />
-          </div>
-
-          <div className="mt-4 p-4 bg-factory-gray rounded-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-neutral-400">Current Balance:</span>
-              <span className="text-white font-medium">
-                Rs. {vendor.currentBalance.toLocaleString()}
-              </span>
-            </div>
-            <p className="text-sm text-neutral-500 mt-2">
-              Balance cannot be edited directly. Use the ledger to record transactions.
-            </p>
           </div>
         </div>
 
@@ -363,8 +390,8 @@ export default function EditVendorPage() {
             <Button type="button" variant="secondary" onClick={() => router.back()}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading || !hasChanges}>
-              {isLoading ? 'Saving...' : 'Save Changes'}
+            <Button type="submit" disabled={isSubmitting || !hasChanges}>
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </div>

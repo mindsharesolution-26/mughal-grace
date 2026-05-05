@@ -15,6 +15,8 @@ import {
   GreyStockSummary,
   FinishedStockSummary,
   RollStatsOverview,
+  CreateBatchRollsData,
+  CreateBatchRollsResponse,
 } from '../types/roll';
 
 export const rollsApi = {
@@ -39,6 +41,12 @@ export const rollsApi = {
   // Create new roll with QR code
   create: async (data: CreateRollData): Promise<CreateRollResponse> => {
     const response = await api.post('/rolls', data);
+    return response.data;
+  },
+
+  // Create batch of rolls (LOT mode)
+  createBatch: async (data: CreateBatchRollsData): Promise<CreateBatchRollsResponse> => {
+    const response = await api.post('/rolls/batch', data);
     return response.data;
   },
 
