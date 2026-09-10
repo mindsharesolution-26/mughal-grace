@@ -214,11 +214,13 @@ export function hasRouteAccess(role: UserRole | undefined, pathname: string): bo
 
   return allowedPatterns.some(pattern => {
     // Convert pattern to regex
-    // Use placeholder to prevent ** replacement from being affected by * replacement
+    // Use placeholders to prevent ** replacement from being affected by * replacement
     const regexPattern = pattern
-      .replace(/\*\*/g, '<<GLOB>>')      // Temporary placeholder for **
+      .replace(/\/\*\*$/, '<<SUBTREE>>')  // Trailing /** — the section and everything under it
+      .replace(/\*\*/g, '<<GLOB>>')       // Temporary placeholder for **
       .replace(/\*/g, '[^/]+')            // * matches single segment
-      .replace(/<<GLOB>>/g, '.*');        // ** matches anything (including /)
+      .replace(/<<GLOB>>/g, '.*')         // ** matches anything (including /)
+      .replace(/<<SUBTREE>>/g, '(?:/.*)?'); // '/production/**' covers '/production' itself
 
     const regex = new RegExp(`^${regexPattern}$`);
     return regex.test(pathname);

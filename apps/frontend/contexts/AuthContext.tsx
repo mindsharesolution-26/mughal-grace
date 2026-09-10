@@ -9,8 +9,7 @@ import {
   useCallback,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import Cookies from 'js-cookie';
-import { api } from '@/lib/api/client';
+import { api, setAccessToken } from '@/lib/api/client';
 
 export interface User {
   id: number;
@@ -66,18 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const token = Cookies.get('access_token');
-      if (!token) {
-        setUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      const response = await api.get('/auth/me');
+      // Ask the API who we are and let the HttpOnly session cookie answer.
+      // There is no token for JS to inspect first — the cookie is HttpOnly by
+      // design — so a 401 here is what "signed out" looks like. `skipAuthRedirect`
+      // stops the client's 401 handler from hard-redirecting a visitor who was
+      // simply never signed in.
+      const response = await api.get('/auth/me', { skipAuthRedirect: true });
       setUser(response.data.user);
     } catch (error) {
       setUser(null);
-      Cookies.remove('access_token');
+      setAccessToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -92,14 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.post('/auth/login', { email, password });
       const { user, accessToken } = response.data;
 
-      // Use secure cookies in production, allow insecure in development
-      const isProduction = process.env.NODE_ENV === 'production';
-
-      Cookies.set('access_token', accessToken, {
-        expires: 1 / 96, // 15 minutes
-        secure: isProduction,
-        sameSite: isProduction ? 'strict' : 'lax',
-      });
+      // The session itself is the HttpOnly cookie the API just set; this is the
+      // in-memory copy used for the Authorization header.
+      setAccessToken(accessToken);
 
       setUser(user);
       router.push('/dashboard');
@@ -113,13 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.post('/auth/register', data);
       const { user, accessToken } = response.data;
 
-      const isProduction = process.env.NODE_ENV === 'production';
-
-      Cookies.set('access_token', accessToken, {
-        expires: 1 / 96,
-        secure: isProduction,
-        sameSite: isProduction ? 'strict' : 'lax',
-      });
+      setAccessToken(accessToken);
 
       setUser(user);
       router.push('/dashboard');
@@ -134,8 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       // Ignore errors on logout
     } finally {
-      Cookies.remove('access_token');
-      Cookies.remove('refresh_token');
+      // The HttpOnly cookies are cleared by the API's logout response; JS can
+      // only drop the in-memory copy.
+      setAccessToken(null);
       setUser(null);
       router.push('/login');
     }

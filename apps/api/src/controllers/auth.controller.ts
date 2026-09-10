@@ -27,16 +27,16 @@ const generateTokens = (payload: Omit<TokenPayload, 'type'>) => {
   return { accessToken, refreshToken };
 };
 
+// SECURITY: Use strict sameSite for auth cookies to prevent CSRF
+// secure: true should always be used (use HTTPS even in development)
+const cookieOptions = {
+  httpOnly: true,
+  secure: true, // Always secure - use HTTPS in development too
+  sameSite: 'strict' as const, // Strict prevents CSRF attacks
+};
+
 // Set cookies with secure settings
 const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
-  // SECURITY: Use strict sameSite for auth cookies to prevent CSRF
-  // secure: true should always be used (use HTTPS even in development)
-  const cookieOptions = {
-    httpOnly: true,
-    secure: true, // Always secure - use HTTPS in development too
-    sameSite: 'strict' as const, // Strict prevents CSRF attacks
-  };
-
   res.cookie('access_token', accessToken, {
     ...cookieOptions,
     maxAge: 15 * 60 * 1000, // 15 minutes
@@ -219,8 +219,9 @@ export const authController = {
 
   // Logout
   async logout(_req: Request, res: Response) {
-    res.clearCookie('access_token');
-    res.clearCookie('refresh_token');
+    // Attributes must match how the cookies were set, or the browser keeps them.
+    res.clearCookie('access_token', cookieOptions);
+    res.clearCookie('refresh_token', cookieOptions);
 
     res.json({ message: 'Logged out successfully' });
   },

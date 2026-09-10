@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authController } from '../controllers/auth.controller';
 import { validateBody } from '../middleware/validate';
+import { authMiddleware } from '../middleware/auth';
 
 export const authRouter: Router = Router();
 
@@ -33,6 +34,8 @@ authRouter.post('/register', validateBody(registerSchema), authController.regist
 authRouter.post('/login', validateBody(loginSchema), authController.login);
 authRouter.post('/logout', authController.logout);
 authRouter.post('/refresh', authController.refreshToken);
-authRouter.get('/me', authController.me);
+// /me reads req.user, so it needs the auth middleware — without it the handler
+// always threw "Not authenticated" and every page reload logged the user out.
+authRouter.get('/me', authMiddleware, authController.me);
 authRouter.post('/forgot-password', validateBody(forgotPasswordSchema), authController.forgotPassword);
 authRouter.post('/reset-password', validateBody(resetPasswordSchema), authController.resetPassword);

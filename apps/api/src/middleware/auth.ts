@@ -33,15 +33,6 @@ declare global {
 
 export const authMiddleware = (req: Request, _res: Response, next: NextFunction) => {
   try {
-    // Development mode bypass - requires secret token from environment
-    // SECURITY: Never use in production. Set DEV_AUTH_SECRET to a random string in .env
-    const devSecret = process.env.DEV_AUTH_SECRET;
-    if (config.isDev && devSecret && req.headers['x-dev-auth'] === devSecret) {
-      logger.debug('Development auth bypass enabled');
-      req.user = DEV_BYPASS_USER;
-      return next();
-    }
-
     // Get token from header or cookie
     const authHeader = req.headers.authorization;
     const cookieToken = req.cookies?.access_token;
@@ -49,6 +40,18 @@ export const authMiddleware = (req: Request, _res: Response, next: NextFunction)
     const token = authHeader?.startsWith('Bearer ')
       ? authHeader.substring(7)
       : cookieToken;
+
+    // Development mode bypass - requires secret token from environment.
+    // Applied only as a FALLBACK: a real token always wins, otherwise the
+    // bypass identity would mask whoever is actually signed in (and /auth/me
+    // would report the bypass user instead of the real one).
+    // SECURITY: Never use in production. Set DEV_AUTH_SECRET to a random string in .env
+    const devSecret = process.env.DEV_AUTH_SECRET;
+    if (!token && config.isDev && devSecret && req.headers['x-dev-auth'] === devSecret) {
+      logger.debug('Development auth bypass enabled');
+      req.user = DEV_BYPASS_USER;
+      return next();
+    }
 
     if (!token) {
       throw AppError.unauthorized('Authentication token is required');
