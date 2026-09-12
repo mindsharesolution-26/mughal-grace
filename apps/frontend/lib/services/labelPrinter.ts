@@ -15,133 +15,229 @@ const ZEBRA_VENDOR_ID = 0x0a5f;
 const TSC_VENDOR_ID = 0x1203;
 
 /**
+ * Build the ordered label lines (Brand → Product → Article → Weight → Color →
+ * GSM → Width → MTR → Machine → Lot). Empty fields are skipped.
+ * Exported so the in-app Preview modal renders the same content as the printer.
+ */
+export function buildLabelLines(data: RollLabelData): { label: string; value: string }[] {
+  const widthDisplay =
+    data.width != null && data.width !== ''
+      ? `${data.width}${data.widthUnit ? ' ' + data.widthUnit : ''}`
+      : '';
+  const lines: { label: string; value: string }[] = [
+    { label: 'Product', value: data.productName || data.fabricType || '' },
+    { label: 'Article', value: data.articleNumber || data.rollNumber || '' },
+    { label: 'Weight', value: `${data.weight.toFixed(2)} kg` },
+    { label: 'Color', value: data.color || '' },
+    { label: 'GSM', value: data.gsm != null ? String(data.gsm) : '' },
+    { label: 'Width', value: widthDisplay },
+    { label: 'MTR', value: data.mtr != null && data.mtr !== '' ? String(data.mtr) : '' },
+    { label: 'Machine', value: data.machineNumber || '' },
+    { label: 'Lot No', value: data.lotNumber || '' },
+  ];
+  return lines.filter((l) => l.value !== '');
+}
+
+/**
  * Generate ZPL (Zebra Programming Language) code for label printing
- * Label size: 50mm x 30mm (2" x 1.2")
+ * Label size: 100mm x 75mm (4" x 3") — sized to fit Brand + 9 fields + QR.
+ * 203 dpi = ~8 dots/mm → label is 800 × 600 dots.
  */
 export function generateZPL(data: RollLabelData): string {
-  // ^XA = Start format
-  // ^FO = Field origin (x,y in dots, 203 dpi = ~8 dots/mm)
-  // ^BQ = QR Code
-  // ^A0 = Scalable font
-  // ^FS = Field separator
-  // ^XZ = End format
+  const lines = buildLabelLines(data);
+  // Header (brand) at the top, centered. Body (key/value rows) starts below.
+  const header = data.brandName
+    ? `^FO0,30^FB800,1,0,C,0^A0N,40,40^FD${data.brandName}^FS`
+    : '';
+  const bodyStartY = data.brandName ? 95 : 40;
+  const lineHeight = 38;
+  const body = lines
+    .map((l, i) => {
+      const y = bodyStartY + i * lineHeight;
+      return `^FO40,${y}^A0N,28,28^FD${l.label}: ${l.value}^FS`;
+    })
+    .join('\n');
+  // QR code in bottom-right
+  const qr = `^FO620,420^BQN,2,5^FDQA,${data.qrCode}^FS`;
   return `
 ^XA
 ^CI28
-^FO30,30^BQN,2,4^FDQA,${data.qrCode}^FS
-^FO160,30^A0N,28,28^FD${data.rollNumber}^FS
-^FO160,65^A0N,22,22^FD${data.weight.toFixed(1)} kg^FS
-^FO160,95^A0N,18,18^FD${data.fabricType.slice(0, 20)}^FS
-^FO160,120^A0N,16,16^FD${data.date}^FS
-${data.machineNumber ? `^FO160,145^A0N,14,14^FDM: ${data.machineNumber}^FS` : ''}
+^PW800
+^LL600
+${header}
+${body}
+${qr}
 ^XZ
 `.trim();
 }
 
 /**
  * Generate TSPL (TSC Printer Language) code for TSC printers
+ * Label size: 100mm x 75mm
  */
 export function generateTSPL(data: RollLabelData): string {
+  const lines = buildLabelLines(data);
+  // 8 dots/mm → label is 800 × 600 dots
+  const header = data.brandName
+    ? `TEXT 400,25,"4",0,1,1,2,"${data.brandName}"`
+    : '';
+  const bodyStartY = data.brandName ? 90 : 30;
+  const lineHeight = 36;
+  const body = lines
+    .map((l, i) => {
+      const y = bodyStartY + i * lineHeight;
+      return `TEXT 30,${y},"3",0,1,1,"${l.label}: ${l.value}"`;
+    })
+    .join('\n');
+  const qr = `QRCODE 620,420,L,5,A,0,"${data.qrCode}"`;
   return `
-SIZE 50 mm, 30 mm
+SIZE 100 mm, 75 mm
 GAP 2 mm, 0 mm
 DIRECTION 1
 CLS
-QRCODE 20,20,L,4,A,0,"${data.qrCode}"
-TEXT 150,25,"3",0,1,1,"${data.rollNumber}"
-TEXT 150,60,"2",0,1,1,"${data.weight.toFixed(1)} kg"
-TEXT 150,90,"2",0,1,1,"${data.fabricType.slice(0, 20)}"
-TEXT 150,115,"1",0,1,1,"${data.date}"
-${data.machineNumber ? `TEXT 150,140,"1",0,1,1,"M: ${data.machineNumber}"` : ''}
+${header}
+${body}
+${qr}
 PRINT 1,1
 `.trim();
 }
 
 /**
- * Generate HTML content for browser printing
+ * Generate HTML content for browser printing.
+ * Layout: 100mm × 75mm — Brand header, then ordered key/value rows
+ * (Product → Article → Weight → Color → GSM → Width → MTR → Machine → Lot),
+ * QR code in bottom-right.
  */
 function generatePrintHTML(data: RollLabelData): string {
+  const widthDisplay =
+    data.width != null && data.width !== ''
+      ? `${data.width}${data.widthUnit ? ' ' + data.widthUnit : ''}`
+      : '';
+  const rows: { label: string; value: string }[] = [
+    { label: 'Product', value: data.productName || data.fabricType || '' },
+    { label: 'Article', value: data.articleNumber || data.rollNumber || '' },
+    { label: 'Weight', value: `${data.weight.toFixed(2)} kg` },
+    { label: 'Color', value: data.color || '' },
+    { label: 'GSM', value: data.gsm != null ? String(data.gsm) : '' },
+    { label: 'Width', value: widthDisplay },
+    { label: 'MTR', value: data.mtr != null && data.mtr !== '' ? String(data.mtr) : '' },
+    { label: 'Machine', value: data.machineNumber || '' },
+    { label: 'Lot No', value: data.lotNumber || '' },
+  ].filter((r) => r.value !== '');
+
+  const escapeHtml = (s: string) =>
+    String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const rowsHtml = rows
+    .map(
+      (r) =>
+        `<tr><th>${escapeHtml(r.label)}</th><td>${escapeHtml(r.value)}</td></tr>`,
+    )
+    .join('');
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Roll Label - ${data.rollNumber}</title>
+  <title>Roll Label - ${escapeHtml(data.rollNumber)}</title>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
-    @page { size: 50mm 30mm; margin: 0; }
+    @page { size: 100mm 75mm; margin: 0; }
     @media print {
       body { margin: 0; padding: 0; }
       .no-print { display: none; }
     }
     body {
-      font-family: 'Courier New', monospace;
-      width: 50mm;
-      height: 30mm;
-      padding: 2mm;
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      width: 100mm;
+      height: 75mm;
+      padding: 3mm;
       box-sizing: border-box;
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 2mm;
+      color: #000;
+    }
+    .brand {
+      text-align: center;
+      font-size: 14pt;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      border-bottom: 0.5mm solid #000;
+      padding-bottom: 1.5mm;
+      text-transform: uppercase;
+    }
+    .body {
+      display: grid;
+      grid-template-columns: 1fr 30mm;
+      gap: 3mm;
+      align-items: start;
+    }
+    .info {
+      font-size: 9pt;
+      line-height: 1.35;
+      border-collapse: collapse;
+      width: 100%;
+    }
+    .info th {
+      text-align: left;
+      font-weight: 600;
+      color: #555;
+      padding-right: 3mm;
+      white-space: nowrap;
+      width: 18mm;
+      vertical-align: top;
+    }
+    .info td {
+      font-weight: 700;
+      color: #000;
+      vertical-align: top;
+      word-break: break-word;
     }
     .qr-container {
-      width: 24mm;
-      height: 24mm;
-      flex-shrink: 0;
+      width: 28mm;
+      height: 28mm;
+      align-self: end;
+      justify-self: end;
     }
     #qr-code {
       width: 100%;
       height: 100%;
     }
-    .info {
-      margin-left: 2mm;
-      font-size: 8pt;
-      line-height: 1.3;
-      overflow: hidden;
-    }
-    .roll-number {
-      font-weight: bold;
-      font-size: 10pt;
-    }
-    .weight {
-      font-size: 9pt;
-    }
-    .fabric-type, .date, .machine {
-      font-size: 7pt;
-      color: #333;
-    }
   </style>
 </head>
 <body>
-  <div class="qr-container">
-    <canvas id="qr-code"></canvas>
-  </div>
-  <div class="info">
-    <div class="roll-number">${data.rollNumber}</div>
-    <div class="weight">${data.weight.toFixed(1)} kg</div>
-    <div class="fabric-type">${data.fabricType}</div>
-    <div class="date">${data.date}</div>
-    ${data.machineNumber ? `<div class="machine">M: ${data.machineNumber}</div>` : ''}
+  <div class="brand">${escapeHtml(data.brandName || data.fabricType || 'Roll Label')}</div>
+  <div class="body">
+    <table class="info"><tbody>${rowsHtml}</tbody></table>
+    <div class="qr-container"><canvas id="qr-code"></canvas></div>
   </div>
   <script>
+    // Single-flight print guard — prevents the iframe onload, the QR callback,
+    // and the parent-side fallback timeout from all firing window.print()
+    var __PRINTED = false;
+    window.__triggerPrint = function() {
+      if (__PRINTED) return;
+      __PRINTED = true;
+      window.print();
+    };
     function tryRenderQR() {
       if (typeof QRCode === 'undefined') {
-        // QRCode not loaded yet, retry after 100ms
         setTimeout(tryRenderQR, 100);
         return;
       }
-      QRCode.toCanvas(document.getElementById('qr-code'), '${data.qrCode}', {
-        width: 90,
+      QRCode.toCanvas(document.getElementById('qr-code'), '${escapeHtml(data.qrCode)}', {
+        width: 100,
         margin: 0,
         errorCorrectionLevel: 'M'
       }, function(error) {
-        if (!error) {
-          setTimeout(function() { window.print(); }, 300);
-        } else {
-          // If QR fails, still print without QR
-          setTimeout(function() { window.print(); }, 300);
-        }
+        setTimeout(window.__triggerPrint, 300);
       });
     }
-    // Start trying to render after a short delay to let script load
     setTimeout(tryRenderQR, 200);
     window.onafterprint = function() { window.close(); };
   </script>
@@ -180,47 +276,50 @@ export async function printViaBrowser(data: RollLabelData): Promise<boolean> {
       iframeDoc.write(generatePrintHTML(data));
       iframeDoc.close();
 
-      // Wait for content to load, then print
-      iframe.onload = () => {
-        try {
-          // Give QR code time to render
-          setTimeout(() => {
-            if (iframe.contentWindow) {
-              iframe.contentWindow.print();
+      // Belt-and-suspenders: the inline <script> in the iframe self-prints via
+      // window.__triggerPrint (single-flight guarded by __PRINTED), AND the
+      // parent triggers it too as a fallback in case the inline script is
+      // delayed (slow CDN, etc). The guard prevents double-printing.
+      const triggerPrintFromParent = (delay: number) => {
+        setTimeout(() => {
+          try {
+            const cw = iframe.contentWindow as any;
+            if (cw && typeof cw.__triggerPrint === 'function') {
+              cw.__triggerPrint();
+            } else if (cw) {
+              // QR script never loaded — print anyway (label still has text content)
+              cw.print();
             }
-            // Remove iframe after a delay to allow print dialog to appear
-            setTimeout(() => {
-              if (document.body.contains(iframe)) {
-                document.body.removeChild(iframe);
-              }
-            }, 1000);
-            resolve(true);
-          }, 500);
-        } catch (printError) {
-          console.error('Print failed:', printError);
+          } catch (e) {
+            console.warn('Parent-side print trigger failed:', e);
+          }
+        }, delay);
+      };
+
+      iframe.onload = () => {
+        // Trigger print 800ms after onload (gives QR render ~600ms + buffer).
+        // The inline script may already have fired — that's fine, the
+        // __PRINTED guard makes our call a no-op in that case.
+        triggerPrintFromParent(800);
+        // Clean up iframe after print dialog has had time to appear
+        setTimeout(() => {
           if (document.body.contains(iframe)) {
             document.body.removeChild(iframe);
           }
-          resolve(false);
-        }
+        }, 6000);
+        resolve(true);
       };
 
-      // Fallback timeout in case onload doesn't fire
+      // Safety: if onload never fires (rare), still trigger print + cleanup
       setTimeout(() => {
-        try {
-          if (iframe.contentWindow) {
-            iframe.contentWindow.print();
-          }
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 1000);
-          resolve(true);
-        } catch (e) {
-          resolve(false);
-        }
+        triggerPrintFromParent(0);
       }, 2000);
+      setTimeout(() => {
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+        resolve(true);
+      }, 6000);
 
     } catch (error) {
       console.error('Browser print failed:', error);

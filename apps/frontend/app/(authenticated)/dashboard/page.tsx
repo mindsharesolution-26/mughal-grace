@@ -1,8 +1,14 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatsCard } from '@/components/molecules/StatsCard';
+import { api } from '@/lib/api/client';
+import { rollsApi } from '@/lib/api/rolls';
+import { machinesApi } from '@/lib/api/machines';
+import type { RollStatsOverview } from '@/lib/types/roll';
+import type { MachineStats, Machine } from '@/lib/types/machine';
 import {
   Factory,
   Settings,
@@ -19,8 +25,37 @@ import {
   TrendingDown,
 } from 'lucide-react';
 
+const kg = (value: number) =>
+  value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+
 export default function DashboardPage() {
   const { user } = useAuth();
+  const [rollStats, setRollStats] = useState<RollStatsOverview | null>(null);
+  const [machineStats, setMachineStats] = useState<MachineStats | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([rollsApi.getStatsOverview(), machinesApi.getStats()]).then(
+      ([rolls, machines]) => {
+        if (cancelled) return;
+        if (rolls.status === 'fulfilled') setRollStats(rolls.value);
+        if (machines.status === 'fulfilled') setMachineStats(machines.value);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const countOf = (status: keyof RollStatsOverview['byStatus']) =>
+    rollStats?.byStatus?.[status]?.count ?? 0;
+  const weightOf = (status: keyof RollStatsOverview['byStatus']) =>
+    rollStats?.byStatus?.[status]?.weight ?? 0;
+
+  const pendingDyeingWeight = weightOf('SENT_FOR_DYEING') + weightOf('AT_DYEING');
+  const pendingDyeingCount = countOf('SENT_FOR_DYEING') + countOf('AT_DYEING');
+  const operational = machineStats?.byStatus?.operational ?? 0;
+  const totalMachines = machineStats?.total ?? 0;
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -69,36 +104,38 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatsCard
           title="Today's Production"
-          value="2,450"
-          change="+12% vs yesterday"
+          value={kg(rollStats?.today.weightProduced ?? 0)}
+          change={`${(rollStats?.today.rollsProduced ?? 0).toLocaleString()} rolls today`}
           changeType="positive"
           icon={<Factory className="w-5 h-5" />}
         />
         <StatsCard
           title="Active Machines"
-          value="42 / 50"
-          change="84% utilization"
+          value={`${operational} / ${totalMachines}`}
+          change={`${machineStats?.operationalRate ?? 0}% utilization`}
           changeType="neutral"
           icon={<Settings className="w-5 h-5" />}
         />
         <StatsCard
           title="Grey Stock"
-          value="12,350"
-          change="+850 kg"
+          value={kg(weightOf('GREY_STOCK'))}
+          change={`${countOf('GREY_STOCK').toLocaleString()} rolls`}
           changeType="positive"
           icon={<Package className="w-5 h-5" />}
         />
         <StatsCard
           title="Pending Dyeing"
-          value="3,200"
-          change="8 batches"
+          value={kg(pendingDyeingWeight)}
+          change={`${pendingDyeingCount.toLocaleString()} rolls`}
           changeType="neutral"
           icon={<Palette className="w-5 h-5" />}
         />
       </div>
 
       {/* Role-specific sections */}
-      {user?.role === 'FACTORY_OWNER' && <OwnerDashboard />}
+      {user?.role === 'FACTORY_OWNER' && (
+        <OwnerDashboard rollStats={rollStats} machineStats={machineStats} />
+      )}
       {user?.role === 'SUPERVISOR' && <SupervisorDashboard />}
       {user?.role === 'ACCOUNTANT' && <AccountantDashboard />}
 
@@ -137,7 +174,76 @@ export default function DashboardPage() {
   );
 }
 
-function OwnerDashboard() {
+interface SalesOrderSummaryRow {
+  orderDate: string;
+  balanceAmount: string | number;
+  paymentStatus: string;
+}
+
+const rupees = (value: number) =>
+  `Rs. ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+function OwnerDashboard({
+  rollStats,
+  machineStats,
+}: {
+  rollStats: RollStatsOverview | null;
+  machineStats: MachineStats | null;
+}) {
+  const [receivables, setReceivables] = useState({ current: 0, overdue: 0 });
+
+  // Receivables are derived from unsettled sales orders, split on the 30-day
+  // mark. There is no payables endpoint yet, so that row is omitted rather
+  // than shown with an invented figure.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ orders: SalesOrderSummaryRow[] }>('/sales/orders', { params: { limit: 200 } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const cutoff = Date.now() - 30 * 86_400_000;
+        let current = 0;
+        let overdue = 0;
+        for (const order of data.orders ?? []) {
+          const balance = Number(order.balanceAmount) || 0;
+          if (balance <= 0) continue;
+          if (new Date(order.orderDate).getTime() < cutoff) overdue += balance;
+          else current += balance;
+        }
+        setReceivables({ current, overdue });
+      })
+      .catch(() => {
+        if (!cancelled) setReceivables({ current: 0, overdue: 0 });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const brokenMachines = machineStats?.byStatus?.breakdown ?? 0;
+  const maintenanceDue = machineStats?.maintenanceDue ?? 0;
+  const readyForDispatch = rollStats?.byStatus?.FINISHED_STOCK?.count ?? 0;
+
+  const alerts: Array<{ type: 'warning' | 'error' | 'info'; message: string }> = [];
+  if (brokenMachines > 0) {
+    alerts.push({
+      type: 'error',
+      message: `${brokenMachines} machine${brokenMachines > 1 ? 's' : ''} reporting a breakdown`,
+    });
+  }
+  if (maintenanceDue > 0) {
+    alerts.push({
+      type: 'warning',
+      message: `${maintenanceDue} machine${maintenanceDue > 1 ? 's' : ''} due for maintenance`,
+    });
+  }
+  if (readyForDispatch > 0) {
+    alerts.push({
+      type: 'info',
+      message: `${readyForDispatch.toLocaleString()} rolls in finished stock, ready for dispatch`,
+    });
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Outstanding Summary */}
@@ -151,18 +257,18 @@ function OwnerDashboard() {
         <div className="space-y-3">
           <LedgerRow
             label="Receivables · 0–30 days"
-            value="Rs. 2,450,000"
+            value={rupees(receivables.current)}
             tone="default"
           />
           <LedgerRow
             label="Receivables · 30+ days"
-            value="Rs. 1,250,000"
+            value={rupees(receivables.overdue)}
             tone="warning"
           />
           <div className="h-px bg-white/[0.06] my-2" />
           <LedgerRow
-            label="Vendor Payables"
-            value="Rs. 3,100,000"
+            label="Total Outstanding"
+            value={rupees(receivables.current + receivables.overdue)}
             tone="default"
           />
         </div>
@@ -173,52 +279,88 @@ function OwnerDashboard() {
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-white">Alerts</h2>
           <span className="px-2 py-0.5 text-[10px] font-medium tracking-wider uppercase rounded-md bg-error/10 text-error border border-error/30">
-            3 Active
+            {alerts.length} Active
           </span>
         </div>
         <div className="space-y-2">
-          <Alert
-            type="warning"
-            message="Low stock: Cotton 40s (250 kg remaining)"
-          />
-          <Alert type="error" message="Machine #12 breakdown reported" />
-          <Alert type="info" message="5 rolls ready for dispatch" />
+          {alerts.length === 0 ? (
+            <p className="text-sm text-neutral-500">Nothing needs attention right now.</p>
+          ) : (
+            alerts.map((alert) => (
+              <Alert key={alert.message} type={alert.type} message={alert.message} />
+            ))
+          )}
         </div>
       </div>
     </div>
   );
 }
 
+const MACHINE_TONE: Record<string, 'success' | 'warning' | 'error'> = {
+  OPERATIONAL: 'success',
+  IDLE: 'warning',
+  MAINTENANCE: 'warning',
+  BREAKDOWN: 'error',
+  DECOMMISSIONED: 'error',
+};
+
 function SupervisorDashboard() {
+  const [machines, setMachines] = useState<Machine[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    machinesApi
+      .getAll({ limit: 100, sortBy: 'machineNumber', sortOrder: 'asc' })
+      .then((response) => {
+        if (!cancelled) setMachines(response.machines ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setMachines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const running = machines.filter((m) => m.status === 'OPERATIONAL').length;
+  const idle = machines.filter((m) => m.status === 'IDLE').length;
+  const down = machines.filter(
+    (m) => m.status === 'BREAKDOWN' || m.status === 'MAINTENANCE'
+  ).length;
+
+  const toneClasses: Record<string, string> = {
+    success: 'bg-success/10 text-success border-success/30 hover:bg-success/15',
+    warning: 'bg-warning/10 text-warning border-warning/30 hover:bg-warning/15',
+    error: 'bg-error/10 text-error border-error/30 hover:bg-error/15',
+  };
+
   return (
     <div className="glass-panel rounded-2xl p-6">
       <div className="flex items-center justify-between mb-5">
         <h2 className="text-base font-semibold text-white">Machine Status</h2>
         <div className="flex gap-3 text-[10px] uppercase tracking-wider">
-          <LegendDot tone="success" label="Running 42" />
-          <LegendDot tone="warning" label="Idle 3" />
-          <LegendDot tone="error" label="Down 5" />
+          <LegendDot tone="success" label={`Running ${running}`} />
+          <LegendDot tone="warning" label={`Idle ${idle}`} />
+          <LegendDot tone="error" label={`Down ${down}`} />
         </div>
       </div>
-      <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-        {Array.from({ length: 50 }, (_, i) => {
-          const tone =
-            i < 42 ? 'success' : i < 45 ? 'warning' : 'error';
-          const toneClasses: Record<string, string> = {
-            success: 'bg-success/10 text-success border-success/30 hover:bg-success/15',
-            warning: 'bg-warning/10 text-warning border-warning/30 hover:bg-warning/15',
-            error: 'bg-error/10 text-error border-error/30 hover:bg-error/15',
-          };
-          return (
+      {machines.length === 0 ? (
+        <p className="text-sm text-neutral-500">No machines registered yet.</p>
+      ) : (
+        <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+          {machines.map((machine) => (
             <div
-              key={i}
-              className={`aspect-square rounded-lg flex items-center justify-center text-[11px] font-medium border tabular-nums transition-colors cursor-default ${toneClasses[tone]}`}
+              key={machine.id}
+              title={`${machine.machineNumber} · ${machine.name} · ${machine.status}`}
+              className={`aspect-square rounded-lg flex items-center justify-center text-[11px] font-medium border tabular-nums transition-colors cursor-default ${
+                toneClasses[MACHINE_TONE[machine.status] ?? 'warning']
+              }`}
             >
-              {i + 1}
+              {machine.machineNumber.replace(/^\D+/, '')}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

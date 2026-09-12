@@ -3583,3 +3583,291 @@ enum ChatRole {
 
   @@schema("tenant_template")
 }
+
+// ==================== HR MODULE ====================
+
+model Designation {
+  id          Int        @id @default(autoincrement())
+  code        String     @unique @db.VarChar(50)
+  name        String     @db.VarChar(255)
+  nameUrdu    String?    @map("name_urdu") @db.VarChar(255)
+  department  String?    @db.VarChar(100)
+  baseSalary  Decimal?   @map("base_salary") @db.Decimal(12, 2)
+  level       Int        @default(1)
+  isActive    Boolean    @default(true) @map("is_active")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  employees   Employee[]
+
+  @@map("designations")
+  @@schema("tenant_template")
+}
+
+model Employee {
+  id              Int           @id @default(autoincrement())
+  code            String        @unique @db.VarChar(50)
+  fullName        String        @map("full_name") @db.VarChar(255)
+  fullNameUrdu    String?       @map("full_name_urdu") @db.VarChar(255)
+  fatherName      String?       @map("father_name") @db.VarChar(255)
+  cnic            String?       @unique @db.VarChar(15)
+  phone           String?       @db.VarChar(50)
+  emergencyPhone  String?       @map("emergency_phone") @db.VarChar(50)
+  email           String?       @db.VarChar(255)
+  address         String?       @db.Text
+  city            String?       @db.VarChar(100)
+
+  // Employment details
+  designationId   Int?          @map("designation_id")
+  designation     Designation?  @relation(fields: [designationId], references: [id])
+  department      String?       @db.VarChar(100)
+  joiningDate     DateTime      @map("joining_date") @db.Date
+  probationEndDate DateTime?    @map("probation_end_date") @db.Date
+  confirmationDate DateTime?    @map("confirmation_date") @db.Date
+  resignationDate DateTime?     @map("resignation_date") @db.Date
+  lastWorkingDate DateTime?     @map("last_working_date") @db.Date
+
+  // Salary info
+  salaryType      SalaryType    @default(MONTHLY) @map("salary_type")
+  baseSalary      Decimal       @default(0) @map("base_salary") @db.Decimal(12, 2)
+  hourlyRate      Decimal?      @map("hourly_rate") @db.Decimal(10, 2)
+  dailyRate       Decimal?      @map("daily_rate") @db.Decimal(10, 2)
+  overtimeRate    Decimal?      @map("overtime_rate") @db.Decimal(10, 2)
+
+  // Bank details
+  bankName        String?       @map("bank_name") @db.VarChar(100)
+  bankAccountNo   String?       @map("bank_account_no") @db.VarChar(50)
+  bankBranch      String?       @map("bank_branch") @db.VarChar(100)
+
+  // Status
+  status          EmployeeStatus @default(ACTIVE)
+  tenantUserId    Int?          @unique @map("tenant_user_id")
+
+  // Timestamps
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  attendances     Attendance[]
+  salaries        Salary[]
+  leaves          Leave[]
+  advancePayments AdvancePayment[]
+
+  @@index([designationId])
+  @@index([status])
+  @@index([department])
+  @@map("employees")
+  @@schema("tenant_template")
+}
+
+enum SalaryType {
+  MONTHLY
+  DAILY
+  HOURLY
+  PIECE_RATE
+
+  @@schema("tenant_template")
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  PROBATION
+  RESIGNED
+  TERMINATED
+
+  @@schema("tenant_template")
+}
+
+model Attendance {
+  id              Int              @id @default(autoincrement())
+  employeeId      Int              @map("employee_id")
+  employee        Employee         @relation(fields: [employeeId], references: [id])
+  date            DateTime         @db.Date
+
+  // Timing
+  checkIn         DateTime?        @map("check_in")
+  checkOut        DateTime?        @map("check_out")
+  breakMinutes    Int              @default(0) @map("break_minutes")
+
+  // Calculated
+  hoursWorked     Decimal?         @map("hours_worked") @db.Decimal(5, 2)
+  overtimeHours   Decimal?         @map("overtime_hours") @db.Decimal(5, 2)
+
+  // Status
+  status          AttendanceStatus @default(PRESENT)
+  leaveId         Int?             @map("leave_id")
+
+  // Notes
+  notes           String?          @db.Text
+
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([status])
+  @@map("attendances")
+  @@schema("tenant_template")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+  HOLIDAY
+  LATE
+
+  @@schema("tenant_template")
+}
+
+model LeaveType {
+  id              Int           @id @default(autoincrement())
+  code            String        @unique @db.VarChar(50)
+  name            String        @db.VarChar(100)
+  nameUrdu        String?       @map("name_urdu") @db.VarChar(100)
+  description     String?       @db.Text
+  annualAllowance Int           @default(0) @map("annual_allowance")
+  isPaid          Boolean       @default(true) @map("is_paid")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  leaves          Leave[]
+
+  @@map("leave_types")
+  @@schema("tenant_template")
+}
+
+model Leave {
+  id              Int           @id @default(autoincrement())
+  employeeId      Int           @map("employee_id")
+  employee        Employee      @relation(fields: [employeeId], references: [id])
+  leaveTypeId     Int           @map("leave_type_id")
+  leaveType       LeaveType     @relation(fields: [leaveTypeId], references: [id])
+
+  startDate       DateTime      @map("start_date") @db.Date
+  endDate         DateTime      @map("end_date") @db.Date
+  days            Int           @default(1)
+  reason          String?       @db.Text
+
+  status          LeaveStatus   @default(PENDING)
+  approvedById    Int?          @map("approved_by_id")
+  approvedAt      DateTime?     @map("approved_at")
+  rejectionReason String?       @map("rejection_reason") @db.Text
+
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([employeeId])
+  @@index([leaveTypeId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("leaves")
+  @@schema("tenant_template")
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+
+  @@schema("tenant_template")
+}
+
+model Salary {
+  id              Int           @id @default(autoincrement())
+  employeeId      Int           @map("employee_id")
+  employee        Employee      @relation(fields: [employeeId], references: [id])
+
+  // Period
+  month           Int
+  year            Int
+
+  // Earnings
+  baseSalary      Decimal       @map("base_salary") @db.Decimal(12, 2)
+  overtimeAmount  Decimal       @default(0) @map("overtime_amount") @db.Decimal(12, 2)
+  allowances      Decimal       @default(0) @db.Decimal(12, 2)
+  bonus           Decimal       @default(0) @db.Decimal(12, 2)
+  grossSalary     Decimal       @map("gross_salary") @db.Decimal(12, 2)
+
+  // Deductions
+  advances        Decimal       @default(0) @db.Decimal(12, 2)
+  loans           Decimal       @default(0) @db.Decimal(12, 2)
+  tax             Decimal       @default(0) @db.Decimal(12, 2)
+  eobi            Decimal       @default(0) @db.Decimal(12, 2)
+  otherDeductions Decimal       @default(0) @map("other_deductions") @db.Decimal(12, 2)
+  totalDeductions Decimal       @default(0) @map("total_deductions") @db.Decimal(12, 2)
+
+  // Net
+  netSalary       Decimal       @map("net_salary") @db.Decimal(12, 2)
+
+  // Working days
+  workingDays     Int           @default(0) @map("working_days")
+  presentDays     Int           @default(0) @map("present_days")
+  absentDays      Int           @default(0) @map("absent_days")
+  leaveDays       Int           @default(0) @map("leave_days")
+  overtimeHours   Decimal       @default(0) @map("overtime_hours") @db.Decimal(6, 2)
+
+  // Payment
+  status          SalaryStatus  @default(DRAFT)
+  paymentMethod   String?       @map("payment_method") @db.VarChar(50)
+  paidAt          DateTime?     @map("paid_at")
+  notes           String?       @db.Text
+
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@unique([employeeId, month, year])
+  @@index([month, year])
+  @@index([status])
+  @@map("salaries")
+  @@schema("tenant_template")
+}
+
+enum SalaryStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  PAID
+
+  @@schema("tenant_template")
+}
+
+model AdvancePayment {
+  id              Int           @id @default(autoincrement())
+  employeeId      Int           @map("employee_id")
+  employee        Employee      @relation(fields: [employeeId], references: [id])
+
+  amount          Decimal       @db.Decimal(12, 2)
+  date            DateTime      @db.Date
+  reason          String?       @db.Text
+
+  // Deduction schedule
+  deductFromMonth Int?          @map("deduct_from_month")
+  deductFromYear  Int?          @map("deduct_from_year")
+  installments    Int           @default(1)
+  installmentsPaid Int          @default(0) @map("installments_paid")
+
+  status          AdvanceStatus @default(PENDING)
+  approvedById    Int?          @map("approved_by_id")
+  approvedAt      DateTime?     @map("approved_at")
+
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("advance_payments")
+  @@schema("tenant_template")
+}
+
+enum AdvanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PARTIALLY_DEDUCTED
+  FULLY_DEDUCTED
+
+  @@schema("tenant_template")
+}

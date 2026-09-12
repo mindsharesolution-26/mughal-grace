@@ -10,6 +10,8 @@ export interface FabricProductionLookup {
   machineId: number | null;
   machine?: { id: number; machineNumber: string; name: string } | null;
   fabricType?: { id: number; name: string } | null;
+  brand?: { id: number; name: string } | null;
+  color?: { id: number; name: string } | null;
   gsm: string | null;
   width: string | null;
   widthUnit: string | null;

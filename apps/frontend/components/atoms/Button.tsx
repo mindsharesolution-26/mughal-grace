@@ -23,23 +23,30 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-medium rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-factory-dark disabled:opacity-50 disabled:cursor-not-allowed';
+      'inline-flex items-center justify-center font-medium rounded-xl transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50 disabled:opacity-50 disabled:cursor-not-allowed select-none';
 
     const variants = {
+      // Primary — gradient cyan with glass-edge highlight on top
       primary:
-        'bg-primary-500 text-white hover:bg-primary-600 focus:ring-primary-500',
+        'bg-gradient-to-b from-primary-400 to-primary-600 text-white shadow-lg shadow-primary-500/20 hover:from-primary-300 hover:to-primary-500 active:from-primary-500 active:to-primary-700 ring-1 ring-inset ring-white/10',
+      // Secondary — frosted-glass surface with subtle border
       secondary:
-        'bg-factory-gray text-white hover:bg-factory-light focus:ring-factory-border border border-factory-border',
+        'glass-panel text-white hover:bg-white/[0.07] hover:border-white/[0.12]',
+      // Ghost — fully transparent, glass on hover
       ghost:
-        'bg-transparent text-neutral-300 hover:bg-factory-gray hover:text-white focus:ring-factory-border',
-      danger: 'bg-error text-white hover:bg-red-600 focus:ring-error',
-      success: 'bg-success text-white hover:bg-green-600 focus:ring-success',
+        'bg-transparent text-neutral-300 hover:bg-white/[0.05] hover:text-white',
+      // Danger — semantic red on glass
+      danger:
+        'bg-error/90 text-white shadow-lg shadow-error/20 hover:bg-error ring-1 ring-inset ring-white/10',
+      // Success — semantic green on glass
+      success:
+        'bg-success/90 text-white shadow-lg shadow-success/20 hover:bg-success ring-1 ring-inset ring-white/10',
     };
 
     const sizes = {
-      sm: 'px-3 py-1.5 text-sm',
+      sm: 'px-3 py-1.5 text-xs',
       md: 'px-4 py-2 text-sm',
-      lg: 'px-6 py-3 text-base',
+      lg: 'px-6 py-3 text-sm',
     };
 
     return (

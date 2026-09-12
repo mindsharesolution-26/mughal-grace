@@ -18,11 +18,13 @@ rollsRouter.use(tenantMiddleware);
 // Validation Schemas
 // ========================================
 
+// Must match the Prisma RollStatus enum exactly — these values are passed
+// straight through to the database as filters and status writes.
 const rollStatusEnum = z.enum([
   'GREY_STOCK',
-  'SENT_TO_DYEING',
+  'SENT_FOR_DYEING',
   'AT_DYEING',
-  'RECEIVED_FROM_DYEING',
+  'DYEING_COMPLETE',
   'FINISHED_STOCK',
   'SOLD',
   'REJECTED'
@@ -345,6 +347,101 @@ rollsRouter.get('/finished-stock/summary', requirePermission('rolls:read'), asyn
 });
 
 // ========================================
+// GET /rolls/production-logs
+// Daily Production Overview source — lists rolls produced for a date or range,
+// plus aggregate summary. Defaults to today.
+// Must be registered BEFORE the '/:id' route below.
+// ========================================
+rollsRouter.get('/production-logs', requirePermission('rolls:read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { date, startDate, endDate, limit = '100' } = req.query;
+
+    let dateFilter: any = {};
+    if (date) {
+      const target = new Date(date as string);
+      target.setHours(0, 0, 0, 0);
+      const next = new Date(target);
+      next.setDate(next.getDate() + 1);
+      dateFilter = { gte: target, lt: next };
+    } else if (startDate && endDate) {
+      const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      dateFilter = { gte: start, lte: end };
+    } else {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      dateFilter = { gte: today, lt: tomorrow };
+    }
+
+    const rolls = await req.prisma!.roll.findMany({
+      where: { producedAt: dateFilter },
+      include: {
+        machine: { select: { id: true, machineNumber: true, name: true } },
+        fabric: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { producedAt: 'desc' },
+      take: parseInt(limit as string),
+    });
+
+    const totalRolls = rolls.length;
+    const totalWeight = rolls.reduce((sum: number, r: any) => sum + Number(r.greyWeight), 0);
+
+    // Group by fabric for the per-product summary
+    const byFabricMap: Record<string, { id: number | null; name: string; articleNumber: string | null; weight: number; rolls: number }> = {};
+    for (const r of rolls) {
+      const key = r.fabric?.id != null ? `f${r.fabric.id}` : `t:${r.fabricType}`;
+      if (!byFabricMap[key]) {
+        byFabricMap[key] = {
+          id: r.fabric?.id ?? null,
+          name: r.fabric?.name || r.fabricType,
+          articleNumber: r.fabric?.code || null,
+          weight: 0,
+          rolls: 0,
+        };
+      }
+      byFabricMap[key].weight += Number(r.greyWeight);
+      byFabricMap[key].rolls += 1;
+    }
+
+    res.json({
+      data: {
+        logs: rolls.map((r: any) => ({
+          id: r.id,
+          rollNumber: r.rollNumber,
+          weight: Number(r.greyWeight),
+          machine: r.machine?.machineNumber || null,
+          machineName: r.machine?.name || null,
+          product: {
+            id: r.fabric?.id ?? null,
+            name: r.fabric?.name || r.fabricType,
+            articleNumber: r.fabric?.code || null,
+            qrCode: r.qrCode || '',
+          },
+          createdAt: r.producedAt,
+        })),
+        summary: {
+          totalWeight: Math.round(totalWeight * 100) / 100,
+          totalRolls,
+          byProduct: Object.values(byFabricMap).map((p) => ({
+            id: p.id ?? 0,
+            name: p.name,
+            articleNumber: p.articleNumber,
+            weight: Math.round(p.weight * 100) / 100,
+            rolls: p.rolls,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ========================================
 // GET /rolls/:id - Get roll details
 // ========================================
 rollsRouter.get('/:id', requirePermission('rolls:read'), async (req: Request, res: Response, next: NextFunction) => {
@@ -596,74 +693,52 @@ rollsRouter.post('/batch', requirePermission('rolls:write'), validateBody(create
     // Calculate total weight for stock update
     const totalWeight = rollsData.reduce((sum: number, r: any) => sum + r.greyWeight, 0);
 
-    // Create all rolls in a transaction (with extended timeout for batch operations)
+    // Pre-compute all roll rows so we can use bulk inserts (4 round-trips instead of 3N+1)
+    const producedAt = new Date();
+    const rollsToCreate = rollsData.map((rollData: any, i: number) => ({
+      rollNumber: `${prefix}${(startSequence + i).toString().padStart(4, '0')}`,
+      qrCode: generateQRCode(),
+      fabricId: fabric.id,
+      machineId: fabric.machineId!,
+      fabricType: fabric.name,
+      greyWeight: rollData.greyWeight,
+      grade: rollData.grade || 'A',
+      defectNotes: rollData.defectNotes,
+      status: 'GREY_STOCK' as const,
+      producedAt,
+    }));
+
+    // Bulk insert in a transaction
     const createdRolls = await req.prisma!.$transaction(async (tx: any) => {
-      const results = [];
+      // 1. Insert all rolls in one round-trip; Postgres preserves insertion order
+      const rolls = await tx.roll.createManyAndReturn({
+        data: rollsToCreate,
+      });
 
-      for (let i = 0; i < rollsData.length; i++) {
-        const rollData = rollsData[i];
-        const rollNumber = `${prefix}${(startSequence + i).toString().padStart(4, '0')}`;
-        const qrCode = generateQRCode();
+      // 2. Bulk insert status history
+      await tx.rollStatusHistory.createMany({
+        data: rolls.map((r: any) => ({
+          rollId: r.id,
+          toStatus: 'GREY_STOCK',
+          notes: `Roll created in LOT batch from Fabric: ${fabric.code} (${fabric.name})`,
+          changedBy: userId,
+        })),
+      });
 
-        // Create roll
-        const newRoll = await tx.roll.create({
-          data: {
-            rollNumber,
-            qrCode,
-            fabricId: fabric.id,
-            machineId: fabric.machineId,
-            fabricType: fabric.name,
-            greyWeight: rollData.greyWeight,
-            grade: rollData.grade || 'A',
-            defectNotes: rollData.defectNotes,
-            status: 'GREY_STOCK',
-            producedAt: new Date(),
-          },
-          include: {
-            machine: {
-              select: {
-                id: true,
-                machineNumber: true,
-                name: true,
-              }
-            },
-            fabric: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-              }
-            }
-          }
-        });
+      // 3. Bulk insert stock movements
+      await tx.fabricStockMovement.createMany({
+        data: rolls.map((r: any) => ({
+          fabricId: fabric.id,
+          type: 'IN',
+          quantity: r.greyWeight,
+          referenceNumber: r.rollNumber,
+          sourceType: 'PRODUCTION',
+          notes: `LOT production roll: ${r.rollNumber}`,
+          createdBy: userId,
+        })),
+      });
 
-        // Create status history
-        await tx.rollStatusHistory.create({
-          data: {
-            rollId: newRoll.id,
-            toStatus: 'GREY_STOCK',
-            notes: `Roll created in LOT batch from Fabric: ${fabric.code} (${fabric.name})`,
-            changedBy: userId,
-          }
-        });
-
-        // Create stock movement for each roll
-        await tx.fabricStockMovement.create({
-          data: {
-            fabricId: fabric.id,
-            type: 'IN',
-            quantity: rollData.greyWeight,
-            referenceNumber: newRoll.rollNumber,
-            sourceType: 'PRODUCTION',
-            notes: `LOT production roll: ${newRoll.rollNumber}`,
-            createdBy: userId,
-          }
-        });
-
-        results.push(newRoll);
-      }
-
-      // Update fabric stock (total weight of all rolls)
+      // 4. Update fabric stock (total weight of all rolls)
       await tx.fabric.update({
         where: { id: fabricId },
         data: {
@@ -673,15 +748,22 @@ rollsRouter.post('/batch', requirePermission('rolls:write'), validateBody(create
         }
       });
 
-      return results;
+      return rolls;
     }, {
       timeout: 30000, // 30 seconds for batch operations
     });
 
+    // Attach machine + fabric to each roll (replaces the old per-row include)
+    const enrichedRolls = createdRolls.map((roll: any) => ({
+      ...roll,
+      machine: fabric.machine,
+      fabric: { id: fabric.id, code: fabric.code, name: fabric.name },
+    }));
+
     logger.info(`LOT batch created: ${createdRolls.length} rolls for Fabric ${fabric.code}, total weight: ${totalWeight}kg`);
 
     res.status(201).json({
-      data: createdRolls,
+      data: enrichedRolls,
       summary: {
         totalRolls: createdRolls.length,
         totalWeight: totalWeight,

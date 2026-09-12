@@ -15,6 +15,13 @@
   --success: #10b981;
   --warning: #f59e0b;
   --error: #ef4444;
+
+  /* Glass surface tokens — the foundation of the redesigned aesthetic */
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-bg-hover: rgba(255, 255, 255, 0.07);
+  --glass-bg-strong: rgba(255, 255, 255, 0.07);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-strong: rgba(255, 255, 255, 0.12);
 }
 
 * {
@@ -26,7 +33,7 @@
 html,
 body {
   height: 100%;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-body), 'Poppins', system-ui, sans-serif;
 }
 
 body {
@@ -34,25 +41,39 @@ body {
   color: #ffffff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: relative;
 }
 
-/* Scrollbar */
+/* Subtle ambient gradient haze — gives the dark base depth without competing
+   for attention. Two faint cyan blooms in opposite corners. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 0% 0%, rgba(14, 165, 233, 0.06), transparent 60%),
+    radial-gradient(ellipse 50% 50% at 100% 100%, rgba(14, 165, 233, 0.04), transparent 60%);
+  z-index: 0;
+}
+
+/* Refined scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--factory-dark);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--factory-light);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #525252;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 /* Focus styles */
@@ -82,28 +103,135 @@ body {
   }
 }
 
+@keyframes glass-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glass-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(14, 165, 233, 0); }
+}
+
 /* Utility classes */
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
 
-  .glass {
-    background: rgba(23, 23, 23, 0.8);
-    backdrop-filter: blur(12px);
+  /* ============ Glassmorphic surface system ============ */
+
+  /* Base frosted-glass panel — used on cards, modals, side panels */
+  .glass-panel {
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.5);
   }
 
-  .gradient-border {
-    border: 1px solid transparent;
-    background: linear-gradient(var(--factory-dark), var(--factory-dark)) padding-box,
-                linear-gradient(135deg, var(--primary), var(--factory-light)) border-box;
+  /* Stronger surface — for elements that need to assert hierarchy
+     (modals, prominent cards, the active sidebar item) */
+  .glass-strong {
+    background-color: var(--glass-bg-strong);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--glass-border-strong);
+    box-shadow: 0 16px 48px -12px rgba(0, 0, 0, 0.6);
   }
 
+  /* Subtle surface — for tertiary panels, inline groupings, table rows */
+  .glass-subtle {
+    background-color: rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Form-input glass treatment — translucent fill, accent on focus */
+  .glass-input {
+    background-color: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+  }
+  .glass-input:hover:not(:disabled):not([readonly]) {
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  .glass-input:focus,
+  .glass-input:focus-within {
+    border-color: rgba(14, 165, 233, 0.5);
+    background-color: rgba(14, 165, 233, 0.04);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+    outline: none;
+  }
+
+  /* Sidebar / chrome — heaviest blur for shell elements that float over content */
+  .glass-shell {
+    background-color: rgba(10, 10, 10, 0.65);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Active state — for nav items, selected segmented controls, pinned rows */
+  .glass-active {
+    background-color: rgba(14, 165, 233, 0.12);
+    border: 1px solid rgba(14, 165, 233, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.05);
+  }
+
+  /* Soft cool shadow used on elevated cards and modals */
+  .shadow-glass {
+    box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.5);
+  }
+  .shadow-glass-lg {
+    box-shadow: 0 24px 64px -16px rgba(0, 0, 0, 0.7);
+  }
+
+  /* Animations */
   .animate-slide-in {
     animation: slide-in 0.3s ease-out;
   }
-
   .animate-fade-in {
     animation: fade-in 0.2s ease-out;
+  }
+  .animate-glass-rise {
+    animation: glass-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .animate-glass-pulse {
+    animation: glass-pulse 2s ease-in-out infinite;
+  }
+
+  /* Tabular numerals — applied to any element with numeric content that
+     needs columnar alignment (weights, roll counts, currency, dates) */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* Tiny uppercase labels — generic typography pattern usable on any page.
+     Three tone variants: neutral / primary-accented / muted. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(212, 212, 212, 0.7);
+  }
+  .eyebrow-cool {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(125, 211, 252, 0.85); /* primary-300 */
+  }
+  .eyebrow-mute {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(115, 115, 115, 0.85); /* neutral-500 */
   }
 }

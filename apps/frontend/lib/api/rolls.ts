@@ -85,4 +85,38 @@ export const rollsApi = {
     const response = await api.get('/rolls/stats/overview');
     return response.data;
   },
+
+  // Daily production logs (Roll-based; used by the Production Overview page).
+  // Pass `date` for a single day or `startDate`+`endDate` for a range.
+  // Defaults to today on the server.
+  getProductionLogs: async (params?: {
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }): Promise<{
+    logs: Array<{
+      id: number;
+      rollNumber: string | null;
+      weight: number;
+      machine: string | null;
+      machineName: string | null;
+      product: { id: number | null; name: string; articleNumber: string | null; qrCode: string };
+      createdAt: string;
+    }>;
+    summary: {
+      totalWeight: number;
+      totalRolls: number;
+      byProduct: Array<{
+        id: number;
+        name: string;
+        articleNumber: string | null;
+        weight: number;
+        rolls: number;
+      }>;
+    };
+  }> => {
+    const response = await api.get<{ data: any }>('/rolls/production-logs', { params });
+    return response.data.data;
+  },
 };

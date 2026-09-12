@@ -1,9 +1,16 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Poppins } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/Providers';
 
-const inter = Inter({ subsets: ['latin'] });
+// Single font family — Poppins. Used for everything: body, display, numerals.
+// tabular-nums is opted in per-element where columnar alignment matters.
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-body',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Mughal Grace - Factory Intelligence System',
@@ -17,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={inter.className}>
+    <html lang="en" className={`dark ${poppins.variable}`}>
+      <body className={poppins.className}>
         <Providers>{children}</Providers>
       </body>
     </html>

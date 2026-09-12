@@ -23,6 +23,11 @@ import { chatRouter } from './chat.routes';
 import { importRouter } from './import.routes';
 import suppliersRouter from './suppliers.routes';
 import accountsRouter from './accounts.routes';
+import designationsRouter from './designations.routes';
+import employeesRouter from './employees.routes';
+import attendanceRouter from './attendance.routes';
+import leavesRouter from './leaves.routes';
+import salariesRouter from './salaries.routes';
 
 export const apiRouter: Router = Router();
 
@@ -53,3 +58,10 @@ apiRouter.use('/chat', chatRouter);
 apiRouter.use('/import', importRouter);
 apiRouter.use('/suppliers', suppliersRouter);
 apiRouter.use('/accounts', accountsRouter);
+
+// HR Module routes
+apiRouter.use('/designations', designationsRouter);
+apiRouter.use('/employees', employeesRouter);
+apiRouter.use('/attendance', attendanceRouter);
+apiRouter.use('/leaves', leavesRouter);
+apiRouter.use('/salaries', salariesRouter);

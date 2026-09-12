@@ -1,9 +1,10 @@
 // Roll Status enum
+// Mirrors the Prisma RollStatus enum.
 export type RollStatus =
   | 'GREY_STOCK'
-  | 'SENT_TO_DYEING'
+  | 'SENT_FOR_DYEING'
   | 'AT_DYEING'
-  | 'RECEIVED_FROM_DYEING'
+  | 'DYEING_COMPLETE'
   | 'FINISHED_STOCK'
   | 'SOLD'
   | 'REJECTED';
@@ -77,13 +78,14 @@ export interface RollWithDetails extends Roll {
   statusHistory: RollStatusHistoryEntry[];
 }
 
-// Pagination meta
+// Pagination meta — mirrors buildPaginationMeta() on the API side.
 export interface PaginationMeta {
   page: number;
   limit: number;
-  totalCount: number;
+  total: number;
   totalPages: number;
-  hasMore: boolean;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 
 // Roll list response
@@ -225,14 +227,26 @@ export interface RollStatsOverview {
   soldCount: number;
 }
 
-// Label data for printing
+// Label data for printing — fields appear on the printed label in this order:
+// Brand → Product → Article → Weight → Color → GSM → Width → MTR → Machine → Lot
 export interface RollLabelData {
   qrCode: string;
   rollNumber: string;
   weight: number;
-  fabricType: string;
+  fabricType: string; // kept for back-compat; not rendered if `productName` is set
   date: string;
   machineNumber?: string;
+
+  // New fields requested for the textile roll label
+  brandName?: string;
+  productName?: string;
+  articleNumber?: string;
+  color?: string;
+  gsm?: string | number;
+  width?: string | number;
+  widthUnit?: string;
+  mtr?: string | number;
+  lotNumber?: string;
 }
 
 // Batch (LOT) roll creation types

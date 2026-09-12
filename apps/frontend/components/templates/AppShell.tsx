@@ -52,6 +52,9 @@ import {
   User,
   List,
   Shield,
+  ClipboardCheck,
+  Wallet,
+  Calendar,
 } from 'lucide-react';
 import { ChatWidget } from '@/components/organisms/chat';
 
@@ -182,7 +185,21 @@ const navigation: NavItem[] = [
     ],
   },
 
-  // 9. Reports
+  // 9. HR & Payroll
+  {
+    label: 'HR',
+    icon: Users,
+    children: [
+      { label: 'Dashboard', href: '/hr', icon: LayoutDashboard },
+      { label: 'Employees', href: '/hr/employees', icon: Users },
+      { label: 'Attendance', href: '/hr/attendance', icon: ClipboardCheck },
+      { label: 'Salaries', href: '/hr/salaries', icon: Wallet },
+      { label: 'Leaves', href: '/hr/leaves', icon: Calendar },
+      { label: 'Designations', href: '/hr/designations', icon: Award },
+    ],
+  },
+
+  // 10. Reports
   { label: 'Reports', href: '/reports', icon: FileText },
 
   // 10. General (Master Data - Core Factory Configuration)
@@ -274,25 +291,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             onClick={() => toggleMenu(item.label)}
             className={cn(
-              'w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors',
+              'group w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
               isActive
-                ? 'bg-primary-500/20 text-primary-400'
-                : 'text-neutral-400 hover:bg-factory-gray hover:text-white'
+                ? 'bg-primary-500/12 text-primary-300 ring-1 ring-primary-500/30'
+                : 'text-neutral-400 hover:bg-white/[0.04] hover:text-white'
             )}
           >
             <div className="flex items-center gap-3">
-              <Icon className="w-5 h-5" />
+              <Icon className={cn('w-4 h-4', isActive && 'text-primary-400')} />
               {item.label}
             </div>
             <ChevronDown
               className={cn(
-                'w-4 h-4 transition-transform',
+                'w-3.5 h-3.5 transition-transform opacity-60 group-hover:opacity-100',
                 isExpanded ? 'rotate-180' : ''
               )}
             />
           </button>
           {isExpanded && (
-            <div className="ml-4 mt-1 space-y-1">
+            <div className="ml-3 mt-1 mb-2 space-y-0.5 border-l border-white/[0.06] pl-2">
               {item.children!.map((child) => renderNavItem(child, true))}
             </div>
           )}
@@ -305,121 +322,128 @@ export function AppShell({ children }: { children: ReactNode }) {
         key={item.href}
         href={item.href!}
         className={cn(
-          'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors',
-          isChild && 'pl-6',
+          'flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
+          isChild && 'pl-5 text-[12.5px]',
           isActive
-            ? 'bg-primary-500/20 text-primary-400'
-            : 'text-neutral-400 hover:bg-factory-gray hover:text-white'
+            ? 'bg-primary-500/12 text-primary-300 ring-1 ring-primary-500/30'
+            : 'text-neutral-400 hover:bg-white/[0.04] hover:text-white'
         )}
         onClick={() => setSidebarOpen(false)}
       >
-        <Icon className={cn('w-5 h-5', isChild && 'w-4 h-4')} />
+        <Icon className={cn('w-4 h-4', isChild && 'w-3.5 h-3.5', isActive && 'text-primary-400')} />
         {item.label}
       </Link>
     );
   };
 
   return (
-    <div className="min-h-screen bg-factory-black">
+    <div className="min-h-screen relative">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — frosted glass */}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full w-64 bg-factory-dark border-r border-factory-border transition-transform lg:translate-x-0',
+          'fixed top-0 left-0 z-50 h-full w-64 glass-shell border-r transition-transform lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-factory-border">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary-500 flex items-center justify-center">
-              <Factory className="w-5 h-5 text-white" />
+        <div className="h-16 flex items-center px-5 border-b border-white/[0.06]">
+          <Link href="/dashboard" className="flex items-center gap-3 group">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/20">
+              <Factory className="w-4 h-4 text-white" />
             </div>
-            <span className="text-lg font-semibold text-white">
-              Mughal Grace
-            </span>
+            <div>
+              <span className="text-[15px] font-semibold text-white tracking-tight block leading-none">
+                Mughal Grace
+              </span>
+              <span className="text-[10px] text-neutral-500 tracking-widest uppercase">
+                Factory OS
+              </span>
+            </div>
           </Link>
         </div>
 
         {/* Navigation */}
         <nav
-          className="p-4 space-y-1 overflow-y-auto scrollbar-thin scrollbar-thumb-factory-border scrollbar-track-transparent"
+          className="px-3 py-4 space-y-0.5 overflow-y-auto"
           style={{ maxHeight: 'calc(100vh - 64px - 80px)' }}
         >
           {filteredNav.map((item) => renderNavItem(item))}
         </nav>
 
         {/* User section */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-factory-border bg-factory-dark">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <div className="w-8 h-8 rounded-full bg-primary-500/20 flex items-center justify-center text-primary-400 text-sm font-medium">
+        <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl glass-subtle">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400/30 to-primary-600/20 ring-1 ring-primary-400/30 flex items-center justify-center text-primary-200 text-xs font-semibold">
               {user?.fullName?.charAt(0) || 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">
+              <p className="text-[13px] font-medium text-white truncate leading-tight">
                 {user?.fullName || 'User'}
               </p>
-              <p className="text-xs text-neutral-500 truncate">
+              <p className="text-[10px] text-neutral-500 truncate uppercase tracking-wider">
                 {user?.role?.replace('_', ' ') || 'Role'}
               </p>
             </div>
             <button
               onClick={logout}
-              className="p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg transition-colors"
+              className="p-1.5 text-neutral-400 hover:text-white hover:bg-white/5 rounded-md transition-colors"
               title="Logout"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main content */}
-      <div className="lg:pl-64">
-        {/* Top bar */}
-        <header className="h-16 bg-factory-dark border-b border-factory-border flex items-center justify-between px-4 lg:px-6">
+      <div className="lg:pl-64 relative z-10">
+        {/* Top bar — frosted glass */}
+        <header className="h-16 glass-shell border-b sticky top-0 z-30 flex items-center justify-between px-4 lg:px-6">
           {/* Mobile menu button */}
           <button
-            className="lg:hidden p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg"
+            className="lg:hidden p-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
             onClick={() => setSidebarOpen(true)}
           >
-            <Menu className="w-6 h-6" />
+            <Menu className="w-5 h-5" />
           </button>
 
-          {/* Breadcrumb placeholder */}
           <div className="hidden lg:block" />
 
-          {/* Search and actions */}
-          <div className="flex items-center gap-4">
-            {/* Search */}
+          {/* Search + actions */}
+          <div className="flex items-center gap-3">
+            {/* Search — pill glass input */}
             <div className="hidden md:flex items-center">
               <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Search..."
-                  className="w-64 pl-10 pr-4 py-2 text-sm bg-factory-gray border border-factory-border rounded-xl text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Search rolls, fabrics, machines…"
+                  className="glass-input w-72 pl-10 pr-4 py-2 text-sm rounded-full text-white placeholder-neutral-500"
                 />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                <kbd className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-600 px-1.5 py-0.5 rounded border border-white/[0.08] bg-white/[0.02]">
+                  ⌘K
+                </kbd>
               </div>
             </div>
 
             {/* Notifications */}
-            <button className="relative p-2 text-neutral-400 hover:text-white hover:bg-factory-gray rounded-lg">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full" />
+            <button className="relative p-2 text-neutral-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-factory-black" />
             </button>
           </div>
         </header>
 
         {/* Page content */}
-        <main className="p-4 lg:p-6">{children}</main>
+        <main className="p-4 lg:p-8">{children}</main>
       </div>
 
       {/* Chat Widget */}

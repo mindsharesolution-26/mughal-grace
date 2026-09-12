@@ -12,16 +12,16 @@ export interface StatusBadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  success: 'bg-success/20 text-success border-success/30',
-  warning: 'bg-warning/20 text-warning border-warning/30',
-  error: 'bg-error/20 text-error border-error/30',
-  info: 'bg-primary-500/20 text-primary-400 border-primary-500/30',
-  neutral: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30',
+  success: 'bg-success/10 text-success border-success/30 backdrop-blur-sm',
+  warning: 'bg-warning/10 text-warning border-warning/30 backdrop-blur-sm',
+  error: 'bg-error/10 text-error border-error/30 backdrop-blur-sm',
+  info: 'bg-primary-500/10 text-primary-300 border-primary-500/30 backdrop-blur-sm',
+  neutral: 'bg-white/[0.04] text-neutral-300 border-white/[0.08] backdrop-blur-sm',
 };
 
 const sizeStyles = {
-  sm: 'px-2 py-0.5 text-xs',
-  md: 'px-2.5 py-1 text-sm',
+  sm: 'px-2 py-0.5 text-[10px] tracking-wider uppercase',
+  md: 'px-2.5 py-1 text-[11px] tracking-wider uppercase',
 };
 
 export function StatusBadge({

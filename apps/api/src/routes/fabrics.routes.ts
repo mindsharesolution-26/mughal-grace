@@ -151,6 +151,12 @@ fabricsRouter.get('/production-lookup', requirePermission('production:read'), as
         fabricType: {
           select: { id: true, name: true }
         },
+        brand: {
+          select: { id: true, name: true }
+        },
+        color: {
+          select: { id: true, name: true }
+        },
         gsm: true,
         width: true,
         widthUnit: true,

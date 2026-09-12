@@ -24,9 +24,9 @@ import {
 // Roll status colors
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   GREY_STOCK: { bg: 'bg-slate-500/20', text: 'text-slate-400', label: 'Grey Stock' },
-  SENT_TO_DYEING: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Sent to Dyeing' },
+  SENT_FOR_DYEING: { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Sent to Dyeing' },
   AT_DYEING: { bg: 'bg-purple-500/20', text: 'text-purple-400', label: 'At Dyeing' },
-  RECEIVED_FROM_DYEING: { bg: 'bg-indigo-500/20', text: 'text-indigo-400', label: 'From Dyeing' },
+  DYEING_COMPLETE: { bg: 'bg-indigo-500/20', text: 'text-indigo-400', label: 'From Dyeing' },
   FINISHED_STOCK: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', label: 'Finished Stock' },
   SOLD: { bg: 'bg-orange-500/20', text: 'text-orange-400', label: 'Sold/Issued' },
   REJECTED: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Rejected' },
